@@ -1,0 +1,40 @@
+# macOS / system
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+
+# Flutter / Dart (project-level)
+frontend/flutter/.dart_tool/
+frontend/flutter/.flutter-plugins
+frontend/flutter/.flutter-plugins-dependencies
+frontend/flutter/.packages
+frontend/flutter/.pub-cache/
+frontend/flutter/.pub/
+frontend/flutter/build/
+frontend/flutter/coverage/
+frontend/flutter/android/build/
+frontend/flutter/ios/build/
+
+# Android local files
+frontend/flutter/android/local.properties
+frontend/flutter/android/.gradle/
+
+# iOS local build artifacts
+frontend/flutter/ios/Pods/
+frontend/flutter/ios/.symlinks/
+frontend/flutter/ios/Flutter/ephemeral/
+frontend/flutter/ios/Flutter/flutter_export_environment.sh
+frontend/flutter/ios/DerivedData/
+
+# Generated backup/export artifacts
+*.json.bak
+*.backup.json
