@@ -71,7 +71,7 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
         if (!mounted) {
           return;
         }
-        unawaited(_endPause(model));
+        unawaited(_endPause(model, notifyOnAutoEnd: true));
       });
     }
 
@@ -203,7 +203,10 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
     }
   }
 
-  Future<void> _endPause(AppModel model) async {
+  Future<void> _endPause(
+    AppModel model, {
+    required bool notifyOnAutoEnd,
+  }) async {
     if (_pauseActioning || !model.isPauseActive) {
       return;
     }
@@ -212,7 +215,9 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
     });
     try {
       await model.endPause();
-      await CountdownAlertService.instance.notifyPauseEndedForeground();
+      if (notifyOnAutoEnd) {
+        await CountdownAlertService.instance.notifyPauseEndedForeground();
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -248,7 +253,7 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
                 return const SizedBox.shrink();
               }
               final Duration remaining = state.pauseRemainingDuration;
-              final String message = '为避免暂停过长时间打断专注，单次计时最多暂停 3 分钟';
+              final String message = '为避免暂停过长时间打断专注，单次计时最多暂停 5 秒';
               return AlertDialog(
                 title: const Text('已暂停'),
                 content: Column(
@@ -276,7 +281,7 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
                     onPressed: _pauseActioning
                         ? null
                         : () async {
-                            await _endPause(state);
+                            await _endPause(state, notifyOnAutoEnd: false);
                           },
                     child: Text(_pauseActioning ? '处理中...' : '结束暂停'),
                   ),

@@ -13,6 +13,8 @@ class CountdownAlertService {
 
   static const int _countdownNotificationId = 41001;
   static const int _pauseNotificationId = 41002;
+  static const String _pauseAlertChannelId = 'timeflow_pause_alerts_v2';
+  static const String _pauseAlertChannelName = '暂停结束提醒(铃声+震动)';
 
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
@@ -148,17 +150,10 @@ class CountdownAlertService {
   }
 
   Future<void> notifyPauseEndedForeground() async {
-    if (_isAndroid) {
-      final bool canVibrate = await _canVibrate();
-      if (!canVibrate) {
-        return;
-      }
-      try {
-        await Vibration.vibrate(duration: 420, amplitude: 180);
-      } catch (_) {}
-      return;
-    }
-    await HapticFeedback.mediumImpact();
+    await notifyCountdownCompletedForeground(
+      enableRingtone: true,
+      enableVibration: true,
+    );
   }
 
   Future<void> scheduleBackgroundPauseReminder({
@@ -187,12 +182,12 @@ class CountdownAlertService {
         await _resolveAndroidScheduleMode();
     final AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
-          'timeflow_pause_alerts',
-          '暂停结束提醒',
+          _pauseAlertChannelId,
+          _pauseAlertChannelName,
           channelDescription: '用于暂停额度耗尽后的提醒通知',
           importance: Importance.max,
           priority: Priority.high,
-          playSound: false,
+          playSound: true,
           enableVibration: true,
           vibrationPattern: Int64List.fromList(<int>[0, 360, 120, 360]),
           category: AndroidNotificationCategory.reminder,

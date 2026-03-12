@@ -167,7 +167,7 @@ class CurrentTimer {
       timerMode: map['timer_mode'] as String? ?? 'forward',
       targetSeconds: map['target_seconds'] as int?,
       pausedSecondsTotal: ((map['paused_seconds_total'] as num?)?.toInt() ?? 0)
-          .clamp(0, 180),
+          .clamp(0, RunningTimerInfo.pauseBudgetSeconds),
       pauseStartedAt: () {
         final String? raw = map['pause_started_at'] as String?;
         if (raw == null || raw.trim().isEmpty) {
@@ -189,7 +189,7 @@ class ProjectGroupBundle {
 class RunningTimerInfo {
   const RunningTimerInfo({required this.timer, required this.project});
 
-  static const int pauseBudgetSeconds = 180;
+  static const int pauseBudgetSeconds = 5;
 
   final CurrentTimer timer;
   final ProjectItem project;
