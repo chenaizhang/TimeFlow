@@ -126,19 +126,21 @@ flutter test
 
 ## 产品文档
 
-- 中文 PRD：[`docs/zh-CN/PRD_计流_V0.1_20260311.md`](./docs/zh-CN/PRD_计流_V0.1_20260311.md)
-- English PRD：[`docs/en/PRD_TimeFlow_V0.1_20260311.md`](./docs/en/PRD_TimeFlow_V0.1_20260311.md)
+- 中文 PRD v0.2：[`docs/zh-CN/PRD_计流_V0.2_20260312.md`](./docs/zh-CN/PRD_计流_V0.2_20260312.md)
+- English PRD v0.2：[`docs/en/PRD_TimeFlow_V0.2_20260312.md`](./docs/en/PRD_TimeFlow_V0.2_20260312.md)
+- 中文 PRD v0.1：[`docs/zh-CN/PRD_计流_V0.1_20260311.md`](./docs/zh-CN/PRD_计流_V0.1_20260311.md)
+- English PRD v0.1：[`docs/en/PRD_TimeFlow_V0.1_20260311.md`](./docs/en/PRD_TimeFlow_V0.1_20260311.md)
 
 ## 已知边界（V0.1）
 
-- 计时页“暂停”按钮为占位，计划在 V1 实现
+- 计时页“暂停”按钮为占位，计划在 v0.2 实现
 - 暂不支持云同步与多端实时合并
 - 暂不支持导入番茄 Todo 数据
 
 ## 路线图
 
-- V1：暂停/恢复、更多统计图、记录编辑能力
-- V2：云同步、多设备登录、目标与提醒
+- v0.2：暂停/恢复、更多统计图、记录编辑能力
+- v0.3：云同步、多设备登录、目标与提醒
 
 ## 贡献
 

@@ -103,7 +103,7 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
                       child: OutlinedButton.icon(
                         onPressed: null,
                         icon: const Icon(Icons.pause_outlined),
-                        label: const Text('暂停 (V1)'),
+                        label: const Text('暂停 (v0.2)'),
                       ),
                     ),
                     const SizedBox(width: 12),

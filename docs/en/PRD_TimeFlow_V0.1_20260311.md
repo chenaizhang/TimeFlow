@@ -186,4 +186,4 @@ V0.1 delivers one complete loop:
 
 ### 7.2 Non-mandatory for V0.1 (Deferred)
 
-- The "Pause" button on the running timer page is still a placeholder (planned for V1).
+- The "Pause" button on the running timer page is still a placeholder (planned for v0.2).

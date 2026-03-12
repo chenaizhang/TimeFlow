@@ -126,19 +126,21 @@ Use cases: offline device migration and manual local transfer.
 
 ## Product Documents
 
-- Chinese PRD: [`docs/zh-CN/PRD_计流_V0.1_20260311.md`](./docs/zh-CN/PRD_计流_V0.1_20260311.md)
-- English PRD: [`docs/en/PRD_TimeFlow_V0.1_20260311.md`](./docs/en/PRD_TimeFlow_V0.1_20260311.md)
+- Chinese PRD v0.2: [`docs/zh-CN/PRD_计流_V0.2_20260312.md`](./docs/zh-CN/PRD_计流_V0.2_20260312.md)
+- English PRD v0.2: [`docs/en/PRD_TimeFlow_V0.2_20260312.md`](./docs/en/PRD_TimeFlow_V0.2_20260312.md)
+- Chinese PRD v0.1: [`docs/zh-CN/PRD_计流_V0.1_20260311.md`](./docs/zh-CN/PRD_计流_V0.1_20260311.md)
+- English PRD v0.1: [`docs/en/PRD_TimeFlow_V0.1_20260311.md`](./docs/en/PRD_TimeFlow_V0.1_20260311.md)
 
 ## Known Limits (V0.1)
 
-- "Pause" on the running timer screen is still a placeholder (planned for V1)
+- "Pause" on the running timer screen is still a placeholder (planned for v0.2)
 - Cloud sync and real-time multi-device merge are not supported yet
 - Importing TomatoTodo data is not supported yet
 
 ## Roadmap
 
-- V1: pause/resume, more statistical charts, record editing
-- V2: cloud sync, multi-device login, goals and reminders
+- v0.2: pause/resume, more statistical charts, record editing
+- v0.3: cloud sync, multi-device login, goals and reminders
 
 ## Contributing
 
