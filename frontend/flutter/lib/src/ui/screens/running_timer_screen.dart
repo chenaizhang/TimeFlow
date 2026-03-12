@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/timeflow_repository.dart';
 import '../../models/models.dart';
+import '../../services/countdown_alert_service.dart';
 import '../../state/app_model.dart';
 import '../../utils/time_format.dart';
 
@@ -182,19 +182,10 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
   }
 
   Future<void> _notifyCountdownCompleted(ProjectItem project) async {
-    if (!project.enableVibration && !project.enableRingtone) {
-      return;
-    }
-
-    if (project.enableRingtone) {
-      await SystemSound.play(SystemSoundType.alert);
-    }
-
-    if (project.enableVibration) {
-      await HapticFeedback.mediumImpact();
-      await Future<void>.delayed(const Duration(milliseconds: 120));
-      await HapticFeedback.mediumImpact();
-    }
+    await CountdownAlertService.instance.notifyCountdownCompletedForeground(
+      enableRingtone: project.enableRingtone,
+      enableVibration: project.enableVibration,
+    );
   }
 
   Future<bool> _confirmShortSessionDialog(

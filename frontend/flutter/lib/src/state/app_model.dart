@@ -4,11 +4,14 @@ import 'package:flutter/widgets.dart';
 
 import '../data/timeflow_repository.dart';
 import '../models/models.dart';
+import '../services/countdown_alert_service.dart';
 
 class AppModel extends ChangeNotifier with WidgetsBindingObserver {
   AppModel({required TimeFlowRepository repository}) : _repository = repository;
 
   final TimeFlowRepository _repository;
+  final CountdownAlertService _countdownAlertService =
+      CountdownAlertService.instance;
 
   bool _initialized = false;
   bool _loading = false;
@@ -43,6 +46,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     WidgetsBinding.instance.addObserver(this);
+    await _countdownAlertService.initialize();
     await refreshAll();
     _initialized = true;
   }
@@ -59,6 +63,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
       _runningTimer = runningTimer;
       _lastError = null;
       _updateTickerStatus();
+      unawaited(_syncBackgroundCountdownReminder());
       notifyListeners();
     } catch (error) {
       _lastError = error.toString();
@@ -150,6 +155,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
       _bundles = await _repository.fetchProjectBundles();
       _runningTimer = await _repository.getRunningTimer();
       _updateTickerStatus();
+      unawaited(_syncBackgroundCountdownReminder());
       notifyListeners();
     } catch (error) {
       _lastError = error.toString();
@@ -182,9 +188,47 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      unawaited(refreshAll());
+    switch (state) {
+      case AppLifecycleState.resumed:
+        unawaited(_syncBackgroundCountdownReminder());
+        unawaited(refreshAll());
+        break;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        unawaited(_syncBackgroundCountdownReminder());
+        break;
     }
+  }
+
+  Future<void> _syncBackgroundCountdownReminder() async {
+    final RunningTimerInfo? running = _runningTimer;
+    if (running == null || !running.isCountdown) {
+      await _countdownAlertService.cancelBackgroundCountdownReminder();
+      return;
+    }
+
+    final ProjectItem project = running.project;
+    if (!project.enableRingtone && !project.enableVibration) {
+      await _countdownAlertService.cancelBackgroundCountdownReminder();
+      return;
+    }
+
+    final DateTime endTime = running.timer.startTime.add(
+      Duration(seconds: running.countdownTargetSeconds),
+    );
+    if (!endTime.isAfter(DateTime.now())) {
+      await _countdownAlertService.cancelBackgroundCountdownReminder();
+      return;
+    }
+
+    await _countdownAlertService.scheduleBackgroundCountdownReminder(
+      endTime: endTime,
+      projectName: project.name,
+      enableRingtone: project.enableRingtone,
+      enableVibration: project.enableVibration,
+    );
   }
 
   @override
