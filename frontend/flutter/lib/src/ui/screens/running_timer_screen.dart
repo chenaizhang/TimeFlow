@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -40,6 +41,12 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
     final Duration remaining = Duration(
       seconds: (targetSeconds - elapsed.inSeconds).clamp(0, targetSeconds),
     );
+    final double countdownProgress = isCountdown && targetSeconds > 0
+        ? (elapsed.inMilliseconds /
+                  Duration(seconds: targetSeconds).inMilliseconds)
+              .clamp(0.0, 1.0)
+              .toDouble()
+        : 0.0;
 
     if (!isPaused) {
       _pauseLimitAutoEnding = false;
@@ -85,10 +92,7 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
     return PopScope(
       canPop: false,
       child: Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: const Text('正在计时'),
-        ),
+        appBar: AppBar(automaticallyImplyLeading: false),
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -98,35 +102,42 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
                 const SizedBox(height: 8),
                 Expanded(
                   child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          formatClock(isCountdown ? remaining : elapsed),
-                          style: Theme.of(context).textTheme.displaySmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.2,
+                    child: isCountdown
+                        ? _CountdownCenterRing(
+                            progress: countdownProgress,
+                            timeText: formatClock(remaining),
+                            projectName: running.project.name,
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Text(
+                                formatClock(elapsed),
+                                style: Theme.of(context).textTheme.displaySmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 1.2,
+                                    ),
                               ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          running.project.name,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                fontSize: 13,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.7),
+                              const SizedBox(height: 8),
+                              Text(
+                                '正向计时中',
+                                style: Theme.of(context).textTheme.labelMedium,
                               ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          isCountdown ? '倒计时中' : '正向计时中',
-                          style: Theme.of(context).textTheme.labelMedium,
-                        ),
-                      ],
-                    ),
+                              const SizedBox(height: 6),
+                              Text(
+                                running.project.name,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      fontSize: 13,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.7),
+                                    ),
+                              ),
+                            ],
+                          ),
                   ),
                 ),
                 Row(
@@ -266,10 +277,6 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
                         ? null
                         : () async {
                             await _endPause(state);
-                            if (!dialogContext.mounted) {
-                              return;
-                            }
-                            Navigator.of(dialogContext).pop();
                           },
                     child: Text(_pauseActioning ? '处理中...' : '结束暂停'),
                   ),
@@ -423,6 +430,152 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
     );
 
     return shouldStop ?? false;
+  }
+}
+
+class _CountdownCenterRing extends StatelessWidget {
+  const _CountdownCenterRing({
+    required this.progress,
+    required this.timeText,
+    required this.projectName,
+  });
+
+  final double progress;
+  final String timeText;
+  final String projectName;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double shortestSide = math.min(
+          constraints.maxWidth,
+          constraints.maxHeight,
+        );
+        final double requestedDiameter = (shortestSide * 0.86)
+            .clamp(220.0, 360.0)
+            .toDouble();
+        final double diameter = math.min(shortestSide, requestedDiameter);
+        final ColorScheme colors = Theme.of(context).colorScheme;
+
+        return SizedBox.square(
+          dimension: diameter,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: progress),
+            duration: const Duration(milliseconds: 1100),
+            curve: Curves.linear,
+            builder:
+                (BuildContext context, double animatedProgress, Widget? child) {
+                  return CustomPaint(
+                    painter: _CountdownRingPainter(
+                      progress: animatedProgress,
+                      trackColor: colors.outline.withValues(alpha: 0.22),
+                      progressStartColor: colors.primary.withValues(alpha: 0.3),
+                      progressEndColor: colors.primary,
+                      markerColor: colors.primary,
+                    ),
+                    child: Center(child: child),
+                  );
+                },
+            child: SizedBox(
+              width: diameter * 0.68,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    timeText,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('倒计时中', style: Theme.of(context).textTheme.labelMedium),
+                  const SizedBox(height: 6),
+                  Text(
+                    projectName,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontSize: 13,
+                      color: colors.onSurface.withValues(alpha: 0.72),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CountdownRingPainter extends CustomPainter {
+  const _CountdownRingPainter({
+    required this.progress,
+    required this.trackColor,
+    required this.progressStartColor,
+    required this.progressEndColor,
+    required this.markerColor,
+  });
+
+  final double progress;
+  final Color trackColor;
+  final Color progressStartColor;
+  final Color progressEndColor;
+  final Color markerColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double strokeWidth = (size.shortestSide * 0.065)
+        .clamp(12.0, 18.0)
+        .toDouble();
+    final Offset center = size.center(Offset.zero);
+    final double radius = (size.shortestSide - strokeWidth) / 2;
+    final Rect rect = Rect.fromCircle(center: center, radius: radius);
+
+    final Paint trackPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..color = trackColor;
+    canvas.drawArc(rect, 0, 2 * math.pi, false, trackPaint);
+
+    final double clampedProgress = progress.clamp(0.0, 1.0).toDouble();
+    final double sweep = clampedProgress * 2 * math.pi;
+    if (sweep <= 0) {
+      return;
+    }
+
+    final Paint progressPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..shader = SweepGradient(
+        startAngle: -math.pi / 2,
+        endAngle: -math.pi / 2 + sweep,
+        colors: <Color>[progressStartColor, progressEndColor],
+      ).createShader(rect);
+    canvas.drawArc(rect, -math.pi / 2, sweep, false, progressPaint);
+
+    final double markerAngle = -math.pi / 2 + sweep;
+    final Offset markerCenter =
+        center + Offset(math.cos(markerAngle), math.sin(markerAngle)) * radius;
+    canvas.drawCircle(
+      markerCenter,
+      strokeWidth * 0.36,
+      Paint()..color = markerColor,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CountdownRingPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.trackColor != trackColor ||
+        oldDelegate.progressStartColor != progressStartColor ||
+        oldDelegate.progressEndColor != progressEndColor ||
+        oldDelegate.markerColor != markerColor;
   }
 }
 
