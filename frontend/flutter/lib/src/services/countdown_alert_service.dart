@@ -12,6 +12,7 @@ class CountdownAlertService {
   static final CountdownAlertService instance = CountdownAlertService._();
 
   static const int _countdownNotificationId = 41001;
+  static const int _pauseNotificationId = 41002;
 
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
@@ -124,13 +125,13 @@ class CountdownAlertService {
               ? Int64List.fromList(<int>[0, 350, 120, 350])
               : null,
           category: AndroidNotificationCategory.alarm,
-          ticker: '暂停结束',
+          ticker: '倒计时结束',
           visibility: NotificationVisibility.public,
         );
 
     await _notifications.zonedSchedule(
       id: _countdownNotificationId,
-      title: '暂停结束',
+      title: '倒计时结束',
       body: '“$projectName”倒计时已结束',
       scheduledDate: scheduled,
       notificationDetails: NotificationDetails(android: androidDetails),
@@ -144,6 +145,77 @@ class CountdownAlertService {
       return;
     }
     await _notifications.cancel(id: _countdownNotificationId);
+  }
+
+  Future<void> notifyPauseEndedForeground() async {
+    if (_isAndroid) {
+      final bool canVibrate = await _canVibrate();
+      if (!canVibrate) {
+        return;
+      }
+      try {
+        await Vibration.vibrate(duration: 420, amplitude: 180);
+      } catch (_) {}
+      return;
+    }
+    await HapticFeedback.mediumImpact();
+  }
+
+  Future<void> scheduleBackgroundPauseReminder({
+    required DateTime endTime,
+    required String projectName,
+  }) async {
+    if (!_isAndroid) {
+      return;
+    }
+
+    await initialize();
+    final bool notificationsEnabled = await _ensureNotificationsEnabled();
+    if (!notificationsEnabled) {
+      return;
+    }
+
+    await _ensureTimezoneInitialized();
+    final tz.TZDateTime scheduled = tz.TZDateTime.from(endTime.toUtc(), tz.UTC);
+    final tz.TZDateTime now = tz.TZDateTime.now(tz.UTC);
+    if (!scheduled.isAfter(now.add(const Duration(seconds: 1)))) {
+      await cancelBackgroundPauseReminder();
+      return;
+    }
+
+    final AndroidScheduleMode scheduleMode =
+        await _resolveAndroidScheduleMode();
+    final AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          'timeflow_pause_alerts',
+          '暂停结束提醒',
+          channelDescription: '用于暂停额度耗尽后的提醒通知',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: false,
+          enableVibration: true,
+          vibrationPattern: Int64List.fromList(<int>[0, 360, 120, 360]),
+          category: AndroidNotificationCategory.reminder,
+          ticker: '暂停结束',
+          visibility: NotificationVisibility.public,
+        );
+
+    await _notifications.zonedSchedule(
+      id: _pauseNotificationId,
+      title: '暂停结束',
+      body: '“$projectName”暂停结束，继续专注吧',
+      scheduledDate: scheduled,
+      notificationDetails: NotificationDetails(android: androidDetails),
+      androidScheduleMode: scheduleMode,
+      payload: 'pause_finished',
+    );
+  }
+
+  Future<void> cancelBackgroundPauseReminder() async {
+    if (!_isAndroid || !_initialized) {
+      return;
+    }
+    await _notifications.cancel(id: _pauseNotificationId);
   }
 
   Future<void> _ensureTimezoneInitialized() async {

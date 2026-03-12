@@ -5,7 +5,10 @@ import 'package:provider/provider.dart';
 
 import '../../data/timeflow_repository.dart';
 import '../../models/models.dart';
+import '../../state/app_model.dart';
 import '../../utils/time_format.dart';
+
+enum _HistoryDetailAction { close, delete }
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, required this.initialDate});
@@ -288,6 +291,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               items: _items,
               selectedDate: _selectedDate,
               controller: _listScrollController,
+              onTapItem: _openHistoryDetail,
             ),
           ),
         ],
@@ -304,7 +308,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   DateTime _historyMinDate() {
-    return DateTime(2026, 1, 1);
+    return DateTime(2017, 1, 1);
   }
 
   DateTime _historyMaxDate() {
@@ -323,6 +327,95 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return maxDate;
     }
     return normalized;
+  }
+
+  Future<void> _openHistoryDetail(HistoryItem item) async {
+    final _HistoryDetailAction? action = await showDialog<_HistoryDetailAction>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.36),
+      builder: (BuildContext dialogContext) {
+        return _HistoryDetailDialog(
+          item: item,
+          onSaveNote: (String draft) =>
+              _saveHistoryNote(sessionId: item.session.id, draft: draft),
+        );
+      },
+    );
+    if (!mounted || action != _HistoryDetailAction.delete) {
+      return;
+    }
+
+    final bool confirmed = await _confirmDeleteHistoryItem(item);
+    if (!mounted || !confirmed) {
+      return;
+    }
+    await _deleteHistoryItem(item);
+  }
+
+  Future<String?> _saveHistoryNote({
+    required int sessionId,
+    required String draft,
+  }) async {
+    final AppModel model = context.read<AppModel>();
+    final String? savedNote = await model.updateFocusSessionNote(
+      sessionId: sessionId,
+      note: draft,
+    );
+    if (mounted) {
+      await _load(forDate: _selectedDate, syncSelectedDate: false);
+    }
+    return savedNote;
+  }
+
+  Future<bool> _confirmDeleteHistoryItem(HistoryItem item) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('删除记录'),
+          content: Text(
+            '确认删除 ${formatDate(item.session.recordDate)} '
+            '${formatTime(item.session.startTime)} 的专注记录？',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('确认删除'),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed ?? false;
+  }
+
+  Future<void> _deleteHistoryItem(HistoryItem item) async {
+    try {
+      final AppModel model = context.read<AppModel>();
+      await model.deleteFocusSession(item.session.id);
+      if (!mounted) {
+        return;
+      }
+      await _load(forDate: _selectedDate, syncSelectedDate: false);
+      await _loadMarkedDatesForMonth(_displayedMonth);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('记录已删除')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('删除失败：$error')));
+    }
   }
 }
 
@@ -740,11 +833,13 @@ class _HistoryList extends StatelessWidget {
     required this.items,
     required this.selectedDate,
     required this.controller,
+    required this.onTapItem,
   });
 
   final List<HistoryItem> items;
   final DateTime selectedDate;
   final ScrollController controller;
+  final ValueChanged<HistoryItem> onTapItem;
 
   @override
   Widget build(BuildContext context) {
@@ -769,6 +864,7 @@ class _HistoryList extends StatelessWidget {
               horizontal: 12,
               vertical: 8,
             ),
+            onTap: () => onTapItem(item),
             leading: CircleAvatar(radius: 8, backgroundColor: item.color),
             title: Text(item.projectName),
             subtitle: Text(
@@ -784,6 +880,367 @@ class _HistoryList extends StatelessWidget {
       },
       separatorBuilder: (BuildContext context, int index) =>
           empty ? const SizedBox.shrink() : const SizedBox(height: 4),
+    );
+  }
+}
+
+class _HistoryDetailDialog extends StatefulWidget {
+  const _HistoryDetailDialog({required this.item, required this.onSaveNote});
+
+  final HistoryItem item;
+  final Future<String?> Function(String draft) onSaveNote;
+
+  @override
+  State<_HistoryDetailDialog> createState() => _HistoryDetailDialogState();
+}
+
+class _HistoryDetailDialogState extends State<_HistoryDetailDialog> {
+  late String? _note;
+  late bool _notePending;
+  bool _savingNote = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _note = widget.item.session.note;
+    _notePending = widget.item.session.notePending;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 430),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 28,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: widget.item.color,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '专注记录详情',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _savingNote
+                        ? null
+                        : () => Navigator.of(
+                            context,
+                          ).pop(_HistoryDetailAction.close),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHigh.withValues(alpha: 0.82),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        widget.item.projectName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      formatDurationSeconds(
+                        widget.item.session.durationSeconds,
+                      ),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              _HistoryMetaTile(
+                label: '日期',
+                value: formatDate(widget.item.session.recordDate),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _HistoryMetaTile(
+                      label: '开始时间',
+                      value: formatTime(widget.item.session.startTime),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _HistoryMetaTile(
+                      label: '结束时间',
+                      value: formatTime(widget.item.session.endTime),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: _savingNote ? null : _handleTapFillNote,
+                child: Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(minHeight: 88),
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: scheme.outlineVariant.withValues(alpha: 0.75),
+                    ),
+                  ),
+                  child: _savingNote
+                      ? const Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2.2),
+                          ),
+                        )
+                      : Align(
+                          alignment: _note == null
+                              ? Alignment.center
+                              : Alignment.centerLeft,
+                          child: Text(
+                            _note ?? (_notePending ? '点击填写心得（待补）' : '点击填写心得'),
+                            textAlign: _note == null
+                                ? TextAlign.center
+                                : TextAlign.start,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: _note == null
+                                      ? scheme.primary
+                                      : scheme.onSurface,
+                                  fontWeight: _note == null
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _savingNote
+                          ? null
+                          : () => Navigator.of(
+                              context,
+                            ).pop(_HistoryDetailAction.close),
+                      child: const Text('关闭'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: scheme.error,
+                        foregroundColor: scheme.onError,
+                      ),
+                      onPressed: _savingNote
+                          ? null
+                          : () => Navigator.of(
+                              context,
+                            ).pop(_HistoryDetailAction.delete),
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('删除记录'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleTapFillNote() async {
+    final String? draft = await _showNoteEditorDialog(
+      context,
+      initialText: _note ?? '',
+    );
+    if (!mounted || draft == null) {
+      return;
+    }
+
+    setState(() {
+      _savingNote = true;
+    });
+    try {
+      final String? savedNote = await widget.onSaveNote(draft);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _note = savedNote;
+        _notePending = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('心得已保存')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存失败：$error')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingNote = false;
+        });
+      }
+    }
+  }
+
+  Future<String?> _showNoteEditorDialog(
+    BuildContext context, {
+    required String initialText,
+  }) async {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return _HistoryNoteEditorDialog(initialText: initialText);
+      },
+    );
+  }
+}
+
+class _HistoryNoteEditorDialog extends StatefulWidget {
+  const _HistoryNoteEditorDialog({required this.initialText});
+
+  final String initialText;
+
+  @override
+  State<_HistoryNoteEditorDialog> createState() =>
+      _HistoryNoteEditorDialogState();
+}
+
+class _HistoryNoteEditorDialogState extends State<_HistoryNoteEditorDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('填写心得'),
+      content: TextField(
+        controller: _controller,
+        maxLines: 5,
+        minLines: 4,
+        maxLength: 50,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: '写下本次专注后的感受或总结'),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+class _HistoryMetaTile extends StatelessWidget {
+  const _HistoryMetaTile({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.72),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -20,7 +20,7 @@ class AppDatabase {
     final String path = p.join(dbPath, 'timeflow_v0_1.db');
     return openDatabase(
       path,
-      version: 6,
+      version: 9,
       onConfigure: (Database db) async {
         await db.execute('PRAGMA foreign_keys = ON;');
       },
@@ -74,6 +74,8 @@ class AppDatabase {
         end_time TEXT NOT NULL,
         duration_seconds INTEGER NOT NULL,
         status TEXT NOT NULL,
+        note TEXT,
+        note_pending INTEGER NOT NULL DEFAULT 0,
         record_date TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -100,6 +102,8 @@ class AppDatabase {
         last_sync_time TEXT NOT NULL,
         timer_mode TEXT NOT NULL DEFAULT 'forward',
         target_seconds INTEGER,
+        paused_seconds_total INTEGER NOT NULL DEFAULT 0,
+        pause_started_at TEXT,
         FOREIGN KEY (project_id) REFERENCES projects(id)
       );
     ''');
@@ -197,6 +201,51 @@ class AppDatabase {
       if (!hasColorValue) {
         await db.execute(
           'ALTER TABLE projects ADD COLUMN color_value INTEGER;',
+        );
+      }
+    }
+    if (oldVersion < 7) {
+      final bool hasSessionNote = await _hasColumn(
+        db,
+        table: 'focus_sessions',
+        column: 'note',
+      );
+      if (!hasSessionNote) {
+        await db.execute('ALTER TABLE focus_sessions ADD COLUMN note TEXT;');
+      }
+    }
+    if (oldVersion < 8) {
+      final bool hasNotePending = await _hasColumn(
+        db,
+        table: 'focus_sessions',
+        column: 'note_pending',
+      );
+      if (!hasNotePending) {
+        await db.execute(
+          'ALTER TABLE focus_sessions ADD COLUMN note_pending INTEGER NOT NULL DEFAULT 0;',
+        );
+      }
+    }
+    if (oldVersion < 9) {
+      final bool hasPausedTotal = await _hasColumn(
+        db,
+        table: 'current_timer',
+        column: 'paused_seconds_total',
+      );
+      if (!hasPausedTotal) {
+        await db.execute(
+          'ALTER TABLE current_timer ADD COLUMN paused_seconds_total INTEGER NOT NULL DEFAULT 0;',
+        );
+      }
+
+      final bool hasPauseStarted = await _hasColumn(
+        db,
+        table: 'current_timer',
+        column: 'pause_started_at',
+      );
+      if (!hasPauseStarted) {
+        await db.execute(
+          'ALTER TABLE current_timer ADD COLUMN pause_started_at TEXT;',
         );
       }
     }

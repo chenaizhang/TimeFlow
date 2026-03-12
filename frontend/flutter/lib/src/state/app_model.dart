@@ -22,6 +22,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
   RunningTimerInfo? _runningTimer;
   DateTime _now = DateTime.now();
   Timer? _ticker;
+  bool _appInForeground = true;
 
   bool get initialized => _initialized;
   bool get loading => _loading;
@@ -36,9 +37,35 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
     if (_runningTimer == null) {
       return Duration.zero;
     }
-    final Duration diff = _now.difference(_runningTimer!.timer.startTime);
-    return diff.isNegative ? Duration.zero : diff;
+    final CurrentTimer timer = _runningTimer!.timer;
+    final Duration gross = _now.difference(timer.startTime);
+    if (gross.isNegative) {
+      return Duration.zero;
+    }
+    final int activeSeconds = gross.inSeconds - _pauseConsumedSeconds(timer);
+    if (activeSeconds <= 0) {
+      return Duration.zero;
+    }
+    return Duration(seconds: activeSeconds);
   }
+
+  bool get isPauseActive => _runningTimer?.timer.isPaused ?? false;
+
+  int get pauseRemainingSeconds {
+    if (_runningTimer == null) {
+      return 0;
+    }
+    final int remaining =
+        RunningTimerInfo.pauseBudgetSeconds -
+        _pauseConsumedSeconds(_runningTimer!.timer);
+    return remaining <= 0 ? 0 : remaining;
+  }
+
+  Duration get pauseRemainingDuration =>
+      Duration(seconds: pauseRemainingSeconds);
+
+  bool get canPause =>
+      _runningTimer != null && !isPauseActive && pauseRemainingSeconds > 0;
 
   Future<void> initialize() async {
     if (_initialized) {
@@ -63,7 +90,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
       _runningTimer = runningTimer;
       _lastError = null;
       _updateTickerStatus();
-      unawaited(_syncBackgroundCountdownReminder());
+      unawaited(_syncBackgroundReminders());
       notifyListeners();
     } catch (error) {
       _lastError = error.toString();
@@ -133,17 +160,43 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
     await _runMutation(() => _repository.deleteProject(projectId));
   }
 
+  Future<void> deleteFocusSession(int sessionId) async {
+    await _runMutation(() => _repository.deleteFocusSession(sessionId));
+  }
+
+  Future<String?> updateFocusSessionNote({
+    required int sessionId,
+    required String note,
+  }) async {
+    String? normalizedNote;
+    await _runMutation(() async {
+      normalizedNote = await _repository.updateFocusSessionNote(
+        sessionId: sessionId,
+        note: note,
+      );
+    });
+    return normalizedNote;
+  }
+
   Future<void> startTimer(int projectId) async {
     await _runMutation(() => _repository.startTimer(projectId));
   }
 
-  Future<bool> stopTimer() async {
-    bool hasSavedRecord = false;
+  Future<FocusSession?> stopTimer() async {
+    FocusSession? savedSession;
     await _runMutation(() async {
       final FocusSession? session = await _repository.stopTimer();
-      hasSavedRecord = session != null;
+      savedSession = session;
     });
-    return hasSavedRecord;
+    return savedSession;
+  }
+
+  Future<void> startPause() async {
+    await _runMutation(() => _repository.startPause());
+  }
+
+  Future<void> endPause() async {
+    await _runMutation(() => _repository.endPause());
   }
 
   Future<void> _runMutation(Future<void> Function() action) async {
@@ -155,7 +208,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
       _bundles = await _repository.fetchProjectBundles();
       _runningTimer = await _repository.getRunningTimer();
       _updateTickerStatus();
-      unawaited(_syncBackgroundCountdownReminder());
+      unawaited(_syncBackgroundReminders());
       notifyListeners();
     } catch (error) {
       _lastError = error.toString();
@@ -190,24 +243,84 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        unawaited(_syncBackgroundCountdownReminder());
+        _appInForeground = true;
+        unawaited(_syncBackgroundReminders());
         unawaited(refreshAll());
         break;
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
-        unawaited(_syncBackgroundCountdownReminder());
+        _appInForeground = false;
+        unawaited(_syncBackgroundReminders());
         break;
     }
   }
 
-  Future<void> _syncBackgroundCountdownReminder() async {
+  int _pauseConsumedSeconds(CurrentTimer timer) {
+    int consumed = timer.pausedSecondsTotal;
+    final DateTime? pauseStartedAt = timer.pauseStartedAt;
+    if (pauseStartedAt != null) {
+      final int runningPauseSeconds = _now.difference(pauseStartedAt).inSeconds;
+      if (runningPauseSeconds > 0) {
+        final int remainingForThisSession =
+            RunningTimerInfo.pauseBudgetSeconds - consumed;
+        final int capped = remainingForThisSession <= 0
+            ? 0
+            : (runningPauseSeconds > remainingForThisSession
+                  ? remainingForThisSession
+                  : runningPauseSeconds);
+        consumed += capped;
+      }
+    }
+    if (consumed <= 0) {
+      return 0;
+    }
+    if (consumed >= RunningTimerInfo.pauseBudgetSeconds) {
+      return RunningTimerInfo.pauseBudgetSeconds;
+    }
+    return consumed;
+  }
+
+  Future<void> _syncBackgroundReminders() async {
     final RunningTimerInfo? running = _runningTimer;
-    if (running == null || !running.isCountdown) {
+    if (running == null) {
       await _countdownAlertService.cancelBackgroundCountdownReminder();
+      await _countdownAlertService.cancelBackgroundPauseReminder();
       return;
     }
+
+    if (running.timer.isPaused) {
+      await _countdownAlertService.cancelBackgroundCountdownReminder();
+      if (_appInForeground) {
+        await _countdownAlertService.cancelBackgroundPauseReminder();
+        return;
+      }
+      final int consumed = running.timer.pausedSecondsTotal.clamp(
+        0,
+        RunningTimerInfo.pauseBudgetSeconds,
+      );
+      final int remaining = RunningTimerInfo.pauseBudgetSeconds - consumed;
+      final DateTime? pauseStartedAt = running.timer.pauseStartedAt;
+      if (pauseStartedAt == null || remaining <= 0) {
+        await _countdownAlertService.cancelBackgroundPauseReminder();
+        return;
+      }
+      final DateTime pauseEndsAt = pauseStartedAt.add(
+        Duration(seconds: remaining),
+      );
+      if (!pauseEndsAt.isAfter(DateTime.now())) {
+        await _countdownAlertService.cancelBackgroundPauseReminder();
+        return;
+      }
+      await _countdownAlertService.scheduleBackgroundPauseReminder(
+        endTime: pauseEndsAt,
+        projectName: running.project.name,
+      );
+      return;
+    }
+
+    await _countdownAlertService.cancelBackgroundPauseReminder();
 
     final ProjectItem project = running.project;
     if (!project.enableRingtone && !project.enableVibration) {
@@ -215,8 +328,17 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
+    if (!running.isCountdown || _appInForeground) {
+      await _countdownAlertService.cancelBackgroundCountdownReminder();
+      return;
+    }
+
+    final int consumedPauseSeconds = running.timer.pausedSecondsTotal.clamp(
+      0,
+      RunningTimerInfo.pauseBudgetSeconds,
+    );
     final DateTime endTime = running.timer.startTime.add(
-      Duration(seconds: running.countdownTargetSeconds),
+      Duration(seconds: running.countdownTargetSeconds + consumedPauseSeconds),
     );
     if (!endTime.isAfter(DateTime.now())) {
       await _countdownAlertService.cancelBackgroundCountdownReminder();

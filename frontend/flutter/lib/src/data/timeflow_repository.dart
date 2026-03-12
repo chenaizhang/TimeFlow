@@ -30,6 +30,7 @@ class TimeFlowRepository {
     : _database = database ?? AppDatabase.instance;
 
   static const int minimumValidSessionSeconds = 60;
+  static const int pauseBudgetSeconds = RunningTimerInfo.pauseBudgetSeconds;
   static const int backupFormatVersion = 1;
 
   final AppDatabase _database;
@@ -422,34 +423,36 @@ class TimeFlowRepository {
 
   Future<RunningTimerInfo?> getRunningTimer() async {
     final Database db = await _db;
-    await _ensureSchemaColumns(db);
-    final List<Map<String, Object?>> rows = await db.query(
-      'current_timer',
-      limit: 1,
-    );
+    return db.transaction((Transaction tx) async {
+      await _ensureSchemaColumns(tx);
+      await _materializePauseStateIfExpired(tx, DateTime.now().toUtc());
 
-    if (rows.isEmpty) {
-      return null;
-    }
+      final List<Map<String, Object?>> rows = await tx.query(
+        'current_timer',
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        return null;
+      }
 
-    final CurrentTimer timer = CurrentTimer.fromMap(rows.first);
+      final CurrentTimer timer = CurrentTimer.fromMap(rows.first);
+      final List<Map<String, Object?>> projectRows = await tx.query(
+        'projects',
+        where: 'id = ?',
+        whereArgs: <Object?>[timer.projectId],
+        limit: 1,
+      );
 
-    final List<Map<String, Object?>> projectRows = await db.query(
-      'projects',
-      where: 'id = ?',
-      whereArgs: <Object?>[timer.projectId],
-      limit: 1,
-    );
+      if (projectRows.isEmpty) {
+        await tx.delete('current_timer', where: 'id = 1');
+        return null;
+      }
 
-    if (projectRows.isEmpty) {
-      await db.delete('current_timer', where: 'id = 1');
-      return null;
-    }
-
-    return RunningTimerInfo(
-      timer: timer,
-      project: ProjectItem.fromMap(projectRows.first),
-    );
+      return RunningTimerInfo(
+        timer: timer,
+        project: ProjectItem.fromMap(projectRows.first),
+      );
+    });
   }
 
   Future<void> startTimer(int projectId) async {
@@ -488,6 +491,8 @@ class TimeFlowRepository {
         'target_seconds': project.timerMode == 'countdown'
             ? project.countdownSeconds
             : null,
+        'paused_seconds_total': 0,
+        'pause_started_at': null,
       });
     });
   }
@@ -496,6 +501,54 @@ class TimeFlowRepository {
     final Database db = await _db;
     return db.transaction((Transaction tx) {
       return _stopTimerInternal(tx, DateTime.now().toUtc());
+    });
+  }
+
+  Future<void> startPause() async {
+    final Database db = await _db;
+    await db.transaction((Transaction tx) async {
+      await _ensureSchemaColumns(tx);
+      await _materializePauseStateIfExpired(tx, DateTime.now().toUtc());
+
+      final List<Map<String, Object?>> rows = await tx.query(
+        'current_timer',
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        throw ValidationException('当前没有进行中的计时');
+      }
+
+      final Map<String, Object?> timerRow = rows.first;
+      final String? pauseStarted = timerRow['pause_started_at'] as String?;
+      if (pauseStarted != null && pauseStarted.trim().isNotEmpty) {
+        throw ValidationException('当前已在暂停中');
+      }
+
+      final int usedSeconds = _readPauseUsedSeconds(timerRow);
+      if (usedSeconds >= pauseBudgetSeconds) {
+        throw ValidationException('本次计时暂停额度已用尽');
+      }
+
+      final String now = _nowUtcString();
+      await tx.update('current_timer', <String, Object?>{
+        'pause_started_at': now,
+        'last_sync_time': now,
+      }, where: 'id = 1');
+    });
+  }
+
+  Future<void> endPause() async {
+    final Database db = await _db;
+    await db.transaction((Transaction tx) async {
+      await _ensureSchemaColumns(tx);
+      final List<Map<String, Object?>> rows = await tx.query(
+        'current_timer',
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        throw ValidationException('当前没有进行中的计时');
+      }
+      await _consumeAndClearPause(tx, rows.first, DateTime.now().toUtc());
     });
   }
 
@@ -628,6 +681,227 @@ class TimeFlowRepository {
     );
   }
 
+  Future<MonthHourDistributionStats> fetchMonthHourDistribution(
+    DateTime month,
+  ) async {
+    final DateTime monthStart = DateTime(month.year, month.month, 1);
+    final DateTime monthEndExclusive = DateTime(month.year, month.month + 1, 1);
+    final Database db = await _db;
+
+    final List<Map<String, Object?>> rows = await db.rawQuery(
+      '''
+      SELECT start_time, end_time
+      FROM focus_sessions
+      WHERE status = 'completed'
+        AND end_time > ?
+        AND start_time < ?
+    ''',
+      <Object?>[
+        monthStart.toUtc().toIso8601String(),
+        monthEndExclusive.toUtc().toIso8601String(),
+      ],
+    );
+
+    final List<int> buckets = List<int>.filled(24, 0);
+
+    for (final Map<String, Object?> row in rows) {
+      final String? startRaw = row['start_time'] as String?;
+      final String? endRaw = row['end_time'] as String?;
+      if (startRaw == null || endRaw == null) {
+        continue;
+      }
+
+      DateTime segmentStart;
+      DateTime segmentEnd;
+      try {
+        segmentStart = DateTime.parse(startRaw).toLocal();
+        segmentEnd = DateTime.parse(endRaw).toLocal();
+      } catch (_) {
+        continue;
+      }
+      if (!segmentEnd.isAfter(segmentStart)) {
+        continue;
+      }
+
+      if (segmentStart.isBefore(monthStart)) {
+        segmentStart = monthStart;
+      }
+      if (segmentEnd.isAfter(monthEndExclusive)) {
+        segmentEnd = monthEndExclusive;
+      }
+      if (!segmentEnd.isAfter(segmentStart)) {
+        continue;
+      }
+
+      DateTime cursor = segmentStart;
+      while (cursor.isBefore(segmentEnd)) {
+        final DateTime hourStart = DateTime(
+          cursor.year,
+          cursor.month,
+          cursor.day,
+          cursor.hour,
+        );
+        final DateTime nextHour = hourStart.add(const Duration(hours: 1));
+        final DateTime partEnd = nextHour.isBefore(segmentEnd)
+            ? nextHour
+            : segmentEnd;
+        final int seconds = partEnd.difference(cursor).inSeconds;
+        if (seconds > 0) {
+          buckets[hourStart.hour] += seconds;
+        }
+        cursor = partEnd;
+      }
+    }
+
+    final int totalSeconds = buckets.fold<int>(
+      0,
+      (int sum, int value) => sum + value,
+    );
+    // Display starts from 1:00, but trimming blank edges is anchored at 4:00.
+    // This keeps sleep-time blank segments (usually near 4:00) as the cut boundary.
+    const int displayStartHour = 0;
+    const int trimAnchorHour = 4;
+    final List<int> displayHours = List<int>.generate(
+      24,
+      (int index) => (displayStartHour + index) % 24,
+    );
+    final List<int> trimHours = List<int>.generate(
+      24,
+      (int index) => (trimAnchorHour + index) % 24,
+    );
+
+    int first = 0;
+    int last = trimHours.length - 1;
+    while (first <= last && buckets[trimHours[first]] == 0) {
+      first += 1;
+    }
+    while (last >= first && buckets[trimHours[last]] == 0) {
+      last -= 1;
+    }
+
+    final List<MonthHourBucketItem> items = <MonthHourBucketItem>[];
+    if (first <= last) {
+      final Set<int> includedHours = <int>{
+        for (int i = first; i <= last; i++) trimHours[i],
+      };
+      for (final int hour in displayHours) {
+        if (!includedHours.contains(hour)) {
+          continue;
+        }
+        items.add(MonthHourBucketItem(hour: hour, totalSeconds: buckets[hour]));
+      }
+    }
+
+    return MonthHourDistributionStats(
+      month: monthStart,
+      items: items,
+      totalSeconds: totalSeconds,
+    );
+  }
+
+  Future<MonthDailyStats> fetchMonthDailyStats(DateTime month) async {
+    final DateTime monthStart = DateTime(month.year, month.month, 1);
+    final DateTime monthEnd = DateTime(month.year, month.month + 1, 0);
+    final int daysInMonth = monthEnd.day;
+    final Database db = await _db;
+
+    final List<Map<String, Object?>> rows = await db.rawQuery(
+      '''
+      SELECT record_date, COALESCE(SUM(duration_seconds), 0) AS total_seconds
+      FROM focus_sessions
+      WHERE status = 'completed'
+        AND record_date >= ?
+        AND record_date <= ?
+      GROUP BY record_date
+      ORDER BY record_date ASC
+    ''',
+      <Object?>[_dateKey(monthStart), _dateKey(monthEnd)],
+    );
+
+    final List<int> daySeconds = List<int>.filled(daysInMonth, 0);
+    for (final Map<String, Object?> row in rows) {
+      final String? key = row['record_date'] as String?;
+      if (key == null || key.length < 10) {
+        continue;
+      }
+      final int? day = int.tryParse(key.substring(8, 10));
+      if (day == null || day < 1 || day > daysInMonth) {
+        continue;
+      }
+      daySeconds[day - 1] = (row['total_seconds'] as num?)?.toInt() ?? 0;
+    }
+
+    final List<MonthDailyPoint> points = List<MonthDailyPoint>.generate(
+      daysInMonth,
+      (int index) =>
+          MonthDailyPoint(day: index + 1, totalSeconds: daySeconds[index]),
+      growable: false,
+    );
+
+    final int totalSeconds = daySeconds.fold<int>(
+      0,
+      (int sum, int value) => sum + value,
+    );
+
+    return MonthDailyStats(
+      month: monthStart,
+      points: points,
+      totalSeconds: totalSeconds,
+    );
+  }
+
+  Future<YearMonthlyStats> fetchYearMonthlyStats(DateTime year) async {
+    final DateTime yearStart = DateTime(year.year, 1, 1);
+    final DateTime yearEnd = DateTime(year.year, 12, 31);
+    final Database db = await _db;
+
+    final List<Map<String, Object?>> rows = await db.rawQuery(
+      '''
+      SELECT SUBSTR(record_date, 1, 7) AS year_month,
+             COALESCE(SUM(duration_seconds), 0) AS total_seconds
+      FROM focus_sessions
+      WHERE status = 'completed'
+        AND record_date >= ?
+        AND record_date <= ?
+      GROUP BY year_month
+      ORDER BY year_month ASC
+    ''',
+      <Object?>[_dateKey(yearStart), _dateKey(yearEnd)],
+    );
+
+    final List<int> monthSeconds = List<int>.filled(12, 0);
+    for (final Map<String, Object?> row in rows) {
+      final String? key = row['year_month'] as String?;
+      if (key == null || key.length < 7) {
+        continue;
+      }
+      final int? monthValue = int.tryParse(key.substring(5, 7));
+      if (monthValue == null || monthValue < 1 || monthValue > 12) {
+        continue;
+      }
+      monthSeconds[monthValue - 1] =
+          (row['total_seconds'] as num?)?.toInt() ?? 0;
+    }
+
+    final List<YearMonthlyPoint> points = List<YearMonthlyPoint>.generate(
+      12,
+      (int index) =>
+          YearMonthlyPoint(month: index + 1, totalSeconds: monthSeconds[index]),
+      growable: false,
+    );
+
+    final int totalSeconds = monthSeconds.fold<int>(
+      0,
+      (int sum, int value) => sum + value,
+    );
+
+    return YearMonthlyStats(
+      year: yearStart,
+      points: points,
+      totalSeconds: totalSeconds,
+    );
+  }
+
   Future<List<HistoryItem>> fetchHistoryByDate(DateTime date) async {
     final Database db = await _db;
     await _ensureSchemaColumns(db);
@@ -646,6 +920,8 @@ class TimeFlowRepository {
         fs.end_time AS end_time,
         fs.duration_seconds AS duration_seconds,
         fs.status AS status,
+        fs.note AS note,
+        fs.note_pending AS note_pending,
         fs.record_date AS record_date,
         fs.created_at AS created_at,
         fs.updated_at AS updated_at,
@@ -691,6 +967,8 @@ class TimeFlowRepository {
         fs.end_time AS end_time,
         fs.duration_seconds AS duration_seconds,
         fs.status AS status,
+        fs.note AS note,
+        fs.note_pending AS note_pending,
         fs.record_date AS record_date,
         fs.created_at AS created_at,
         fs.updated_at AS updated_at,
@@ -750,6 +1028,43 @@ class TimeFlowRepository {
         .toSet();
   }
 
+  Future<void> deleteFocusSession(int sessionId) async {
+    final Database db = await _db;
+    await db.transaction((Transaction tx) async {
+      await _ensureSchemaColumns(tx);
+      await tx.delete(
+        'focus_sessions',
+        where: 'id = ?',
+        whereArgs: <Object?>[sessionId],
+      );
+    });
+  }
+
+  Future<String?> updateFocusSessionNote({
+    required int sessionId,
+    required String note,
+  }) async {
+    final String? normalizedNote = _normalizeSessionNote(note);
+    final Database db = await _db;
+    await db.transaction((Transaction tx) async {
+      await _ensureSchemaColumns(tx);
+      final int updatedRows = await tx.update(
+        'focus_sessions',
+        <String, Object?>{
+          'note': normalizedNote,
+          'note_pending': 0,
+          'updated_at': _nowUtcString(),
+        },
+        where: 'id = ?',
+        whereArgs: <Object?>[sessionId],
+      );
+      if (updatedRows == 0) {
+        throw ValidationException('专注记录不存在');
+      }
+    });
+    return normalizedNote;
+  }
+
   Future<String> exportBackupJson() async {
     final Database db = await _db;
     await _ensureSchemaColumns(db);
@@ -775,7 +1090,7 @@ class TimeFlowRepository {
       'format': 'timeflow_backup',
       'version': backupFormatVersion,
       'exported_at': _nowUtcString(),
-      'schema_version': 6,
+      'schema_version': 9,
       'data': <String, Object?>{
         'project_groups': groups
             .map((Map<String, Object?> row) => Map<String, Object?>.from(row))
@@ -844,6 +1159,10 @@ class TimeFlowRepository {
         'project_groups',
       );
       final Set<String> projectColumns = await _tableColumns(tx, 'projects');
+      final Set<String> sessionColumns = await _tableColumns(
+        tx,
+        'focus_sessions',
+      );
       final String now = _nowUtcString();
 
       final List<Map<String, Object?>> normalizedGroups = groupRows
@@ -1029,7 +1348,7 @@ class TimeFlowRepository {
               ),
             );
 
-            return <String, Object?>{
+            final Map<String, Object?> mapped = <String, Object?>{
               'id': id,
               'project_id': projectId,
               'start_time': startTime,
@@ -1059,6 +1378,20 @@ class TimeFlowRepository {
                 defaultValue: now,
               ),
             };
+            if (sessionColumns.contains('note')) {
+              mapped['note'] = _readNullableStringValue(
+                row['note'],
+                field: 'focus_sessions.note',
+              );
+            }
+            if (sessionColumns.contains('note_pending')) {
+              mapped['note_pending'] = _readBoolAsInt(
+                row['note_pending'],
+                field: 'focus_sessions.note_pending',
+                defaultValue: 0,
+              );
+            }
+            return mapped;
           })
           .toList(growable: false);
 
@@ -1098,6 +1431,15 @@ class TimeFlowRepository {
             'target_seconds': _readNullableIntValue(
               row['target_seconds'],
               field: 'current_timer.target_seconds',
+            ),
+            'paused_seconds_total': _readIntValue(
+              row['paused_seconds_total'],
+              field: 'current_timer.paused_seconds_total',
+              defaultValue: 0,
+            ).clamp(0, pauseBudgetSeconds),
+            'pause_started_at': _readNullableStringValue(
+              row['pause_started_at'],
+              field: 'current_timer.pause_started_at',
             ),
           };
         }
@@ -1269,6 +1611,29 @@ class TimeFlowRepository {
     if (!projectColumns.contains('is_deleted')) {
       await db.execute(
         'ALTER TABLE projects ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0;',
+      );
+    }
+    final Set<String> sessionColumns = await _tableColumns(
+      db,
+      'focus_sessions',
+    );
+    if (!sessionColumns.contains('note')) {
+      await db.execute('ALTER TABLE focus_sessions ADD COLUMN note TEXT;');
+    }
+    if (!sessionColumns.contains('note_pending')) {
+      await db.execute(
+        'ALTER TABLE focus_sessions ADD COLUMN note_pending INTEGER NOT NULL DEFAULT 0;',
+      );
+    }
+    final Set<String> timerColumns = await _tableColumns(db, 'current_timer');
+    if (!timerColumns.contains('paused_seconds_total')) {
+      await db.execute(
+        'ALTER TABLE current_timer ADD COLUMN paused_seconds_total INTEGER NOT NULL DEFAULT 0;',
+      );
+    }
+    if (!timerColumns.contains('pause_started_at')) {
+      await db.execute(
+        'ALTER TABLE current_timer ADD COLUMN pause_started_at TEXT;',
       );
     }
 
@@ -1521,7 +1886,9 @@ class TimeFlowRepository {
     final DateTime startedAtUtc = DateTime.parse(
       timerRow['start_time'] as String,
     ).toUtc();
-    final int duration = endedAtUtc.difference(startedAtUtc).inSeconds;
+    final int grossDuration = endedAtUtc.difference(startedAtUtc).inSeconds;
+    final int pausedSeconds = _computePausedSecondsUntil(timerRow, endedAtUtc);
+    final int duration = max(0, grossDuration - pausedSeconds);
 
     await tx.delete('current_timer', where: 'id = 1');
 
@@ -1538,6 +1905,8 @@ class TimeFlowRepository {
       'end_time': endedAtUtc.toIso8601String(),
       'duration_seconds': duration,
       'status': 'completed',
+      'note': null,
+      'note_pending': 1,
       'record_date': _dateKey(startedLocal),
       'created_at': now,
       'updated_at': now,
@@ -1551,6 +1920,117 @@ class TimeFlowRepository {
     );
 
     return FocusSession.fromMap(sessionRows.first);
+  }
+
+  int _readPauseUsedSeconds(Map<String, Object?> row) {
+    return ((row['paused_seconds_total'] as num?)?.toInt() ?? 0).clamp(
+      0,
+      pauseBudgetSeconds,
+    );
+  }
+
+  DateTime? _readPauseStartedAtUtc(Map<String, Object?> row) {
+    final String? raw = row['pause_started_at'] as String?;
+    if (raw == null || raw.trim().isEmpty) {
+      return null;
+    }
+    return DateTime.parse(raw).toUtc();
+  }
+
+  int _elapsedPauseSecondsSince({
+    required DateTime pauseStartedAtUtc,
+    required DateTime nowUtc,
+  }) {
+    final int elapsed = nowUtc.difference(pauseStartedAtUtc).inSeconds;
+    return elapsed <= 0 ? 0 : elapsed;
+  }
+
+  int _computePausedSecondsUntil(Map<String, Object?> row, DateTime nowUtc) {
+    final int usedSeconds = _readPauseUsedSeconds(row);
+    final DateTime? pauseStartedAtUtc = _readPauseStartedAtUtc(row);
+    if (pauseStartedAtUtc == null) {
+      return usedSeconds;
+    }
+    final int remaining = max(0, pauseBudgetSeconds - usedSeconds);
+    if (remaining == 0) {
+      return pauseBudgetSeconds;
+    }
+    final int elapsed = _elapsedPauseSecondsSince(
+      pauseStartedAtUtc: pauseStartedAtUtc,
+      nowUtc: nowUtc,
+    );
+    return usedSeconds + min(remaining, elapsed);
+  }
+
+  Future<void> _consumeAndClearPause(
+    Transaction tx,
+    Map<String, Object?> row,
+    DateTime nowUtc,
+  ) async {
+    final DateTime? pauseStartedAtUtc = _readPauseStartedAtUtc(row);
+    if (pauseStartedAtUtc == null) {
+      return;
+    }
+    final int usedSeconds = _readPauseUsedSeconds(row);
+    final int remaining = max(0, pauseBudgetSeconds - usedSeconds);
+    final int elapsed = _elapsedPauseSecondsSince(
+      pauseStartedAtUtc: pauseStartedAtUtc,
+      nowUtc: nowUtc,
+    );
+    final int consumed = min(remaining, elapsed);
+    final int totalUsed = (usedSeconds + consumed).clamp(0, pauseBudgetSeconds);
+
+    await tx.update('current_timer', <String, Object?>{
+      'paused_seconds_total': totalUsed,
+      'pause_started_at': null,
+      'last_sync_time': _nowUtcString(),
+    }, where: 'id = 1');
+  }
+
+  Future<void> _materializePauseStateIfExpired(
+    Transaction tx,
+    DateTime nowUtc,
+  ) async {
+    final List<Map<String, Object?>> rows = await tx.query(
+      'current_timer',
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return;
+    }
+    final Map<String, Object?> row = rows.first;
+    final DateTime? pauseStartedAtUtc = _readPauseStartedAtUtc(row);
+    if (pauseStartedAtUtc == null) {
+      return;
+    }
+
+    final int usedSeconds = _readPauseUsedSeconds(row);
+    final int remaining = max(0, pauseBudgetSeconds - usedSeconds);
+    if (remaining == 0) {
+      await tx.update('current_timer', <String, Object?>{
+        'paused_seconds_total': pauseBudgetSeconds,
+        'pause_started_at': null,
+        'last_sync_time': _nowUtcString(),
+      }, where: 'id = 1');
+      return;
+    }
+
+    final int elapsed = _elapsedPauseSecondsSince(
+      pauseStartedAtUtc: pauseStartedAtUtc,
+      nowUtc: nowUtc,
+    );
+    if (elapsed < remaining) {
+      return;
+    }
+
+    await tx.update('current_timer', <String, Object?>{
+      'paused_seconds_total': (usedSeconds + remaining).clamp(
+        0,
+        pauseBudgetSeconds,
+      ),
+      'pause_started_at': null,
+      'last_sync_time': _nowUtcString(),
+    }, where: 'id = 1');
   }
 
   String _normalizeName(String value) {
@@ -1573,6 +2053,17 @@ class TimeFlowRepository {
       return 5 * 60 * 60;
     }
     return value;
+  }
+
+  String? _normalizeSessionNote(String value) {
+    final String normalized = value.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+    if (normalized.length > 50) {
+      throw ValidationException('心得最多 50 字');
+    }
+    return normalized;
   }
 
   String _nowUtcString() => DateTime.now().toUtc().toIso8601String();
@@ -1672,6 +2163,17 @@ class TimeFlowRepository {
       return null;
     }
     return _readIntValue(value, field: field, defaultValue: 0);
+  }
+
+  String? _readNullableStringValue(Object? value, {required String field}) {
+    if (value == null) {
+      return null;
+    }
+    final String text = _readStringValue(value, field: field).trim();
+    if (text.isEmpty) {
+      return null;
+    }
+    return text;
   }
 
   String _readStringValue(

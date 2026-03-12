@@ -92,6 +92,8 @@ class FocusSession {
     required this.endTime,
     required this.durationSeconds,
     required this.status,
+    required this.note,
+    required this.notePending,
     required this.recordDate,
     required this.createdAt,
     required this.updatedAt,
@@ -103,11 +105,15 @@ class FocusSession {
   final DateTime endTime;
   final int durationSeconds;
   final String status;
+  final String? note;
+  final bool notePending;
   final DateTime recordDate;
   final DateTime createdAt;
   final DateTime updatedAt;
 
   factory FocusSession.fromMap(Map<String, Object?> map) {
+    final String? rawNote = map['note'] as String?;
+    final String? normalizedNote = rawNote?.trim();
     return FocusSession(
       id: map['id'] as int,
       projectId: map['project_id'] as int,
@@ -115,6 +121,10 @@ class FocusSession {
       endTime: DateTime.parse(map['end_time'] as String).toLocal(),
       durationSeconds: map['duration_seconds'] as int,
       status: map['status'] as String,
+      note: (normalizedNote == null || normalizedNote.isEmpty)
+          ? null
+          : normalizedNote,
+      notePending: ((map['note_pending'] as num?)?.toInt() ?? 0) != 0,
       recordDate: DateTime.parse('${map['record_date']}T00:00:00').toLocal(),
       createdAt: DateTime.parse(map['created_at'] as String).toLocal(),
       updatedAt: DateTime.parse(map['updated_at'] as String).toLocal(),
@@ -131,6 +141,8 @@ class CurrentTimer {
     required this.lastSyncTime,
     required this.timerMode,
     required this.targetSeconds,
+    required this.pausedSecondsTotal,
+    required this.pauseStartedAt,
   });
 
   final int id;
@@ -140,6 +152,10 @@ class CurrentTimer {
   final DateTime lastSyncTime;
   final String timerMode;
   final int? targetSeconds;
+  final int pausedSecondsTotal;
+  final DateTime? pauseStartedAt;
+
+  bool get isPaused => pauseStartedAt != null;
 
   factory CurrentTimer.fromMap(Map<String, Object?> map) {
     return CurrentTimer(
@@ -150,6 +166,15 @@ class CurrentTimer {
       lastSyncTime: DateTime.parse(map['last_sync_time'] as String).toLocal(),
       timerMode: map['timer_mode'] as String? ?? 'forward',
       targetSeconds: map['target_seconds'] as int?,
+      pausedSecondsTotal: ((map['paused_seconds_total'] as num?)?.toInt() ?? 0)
+          .clamp(0, 180),
+      pauseStartedAt: () {
+        final String? raw = map['pause_started_at'] as String?;
+        if (raw == null || raw.trim().isEmpty) {
+          return null;
+        }
+        return DateTime.parse(raw).toLocal();
+      }(),
     );
   }
 }
@@ -163,6 +188,8 @@ class ProjectGroupBundle {
 
 class RunningTimerInfo {
   const RunningTimerInfo({required this.timer, required this.project});
+
+  static const int pauseBudgetSeconds = 180;
 
   final CurrentTimer timer;
   final ProjectItem project;
@@ -245,6 +272,67 @@ class DistributionStats {
   final int totalSeconds;
   final int averagePerDaySeconds;
   final List<ProjectDistributionItem> items;
+}
+
+class MonthHourBucketItem {
+  const MonthHourBucketItem({required this.hour, required this.totalSeconds});
+
+  final int hour;
+  final int totalSeconds;
+}
+
+class MonthHourDistributionStats {
+  const MonthHourDistributionStats({
+    required this.month,
+    required this.items,
+    required this.totalSeconds,
+  });
+
+  final DateTime month;
+  final List<MonthHourBucketItem> items;
+  final int totalSeconds;
+}
+
+class MonthDailyPoint {
+  const MonthDailyPoint({required this.day, required this.totalSeconds});
+
+  final int day;
+  final int totalSeconds;
+
+  double get hours => totalSeconds / 3600;
+}
+
+class MonthDailyStats {
+  const MonthDailyStats({
+    required this.month,
+    required this.points,
+    required this.totalSeconds,
+  });
+
+  final DateTime month;
+  final List<MonthDailyPoint> points;
+  final int totalSeconds;
+}
+
+class YearMonthlyPoint {
+  const YearMonthlyPoint({required this.month, required this.totalSeconds});
+
+  final int month;
+  final int totalSeconds;
+
+  double get hours => totalSeconds / 3600;
+}
+
+class YearMonthlyStats {
+  const YearMonthlyStats({
+    required this.year,
+    required this.points,
+    required this.totalSeconds,
+  });
+
+  final DateTime year;
+  final List<YearMonthlyPoint> points;
+  final int totalSeconds;
 }
 
 class HistoryItem {
