@@ -277,46 +277,57 @@ class _GroupSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        key: PageStorageKey<String>('group-${bundle.group.id}'),
-        initiallyExpanded: true,
-        title: Text(bundle.group.name),
-        subtitle: Text('代办 ${bundle.projects.length} 个'),
-        childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-            child: Row(
-              children: <Widget>[
-                TextButton.icon(
-                  onPressed: onCreateProject,
-                  icon: const Icon(Icons.add),
-                  label: const Text('新增代办'),
-                ),
-                const SizedBox(width: 8),
-                TextButton(onPressed: onEditGroup, child: const Text('代办集设置')),
-                const Spacer(),
-                IconButton(
-                  tooltip: '删除代办集',
-                  onPressed: onDeleteGroup,
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
+    final ThemeData baseTheme = Theme.of(context);
+    return Theme(
+      data: baseTheme.copyWith(dividerColor: Colors.transparent),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        clipBehavior: Clip.hardEdge,
+        child: ExpansionTile(
+          key: PageStorageKey<String>('group-${bundle.group.id}'),
+          initiallyExpanded: true,
+          backgroundColor: Colors.transparent,
+          collapsedBackgroundColor: Colors.transparent,
+          shape: const RoundedRectangleBorder(side: BorderSide.none),
+          collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
+          title: Text(bundle.group.name),
+          subtitle: Text('代办 ${bundle.projects.length} 个'),
+          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: Row(
+                children: <Widget>[
+                  TextButton.icon(
+                    onPressed: onCreateProject,
+                    icon: const Icon(Icons.add),
+                    label: const Text('新增代办'),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: onEditGroup,
+                    child: const Text('代办集设置'),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: '删除代办集',
+                    onPressed: onDeleteGroup,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
             ),
-          ),
-          if (bundle.projects.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('暂无代办，点击“新增代办”开始记录时间'),
-            )
-          else
-            ...bundle.projects.map(
-              (ProjectItem project) => _ProjectCard(project: project),
-            ),
-        ],
+            if (bundle.projects.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('暂无代办，点击“新增代办”开始记录时间'),
+              )
+            else
+              ...bundle.projects.map(
+                (ProjectItem project) => _ProjectCard(project: project),
+              ),
+          ],
+        ),
       ),
     );
   }
