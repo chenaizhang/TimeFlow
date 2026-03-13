@@ -2229,19 +2229,6 @@ class _MonthDailyLineCardState extends State<_MonthDailyLineCard> {
                       (x - dotRadiusX) <= visibleMaxX;
                 }
 
-                bool isPointFullyVisibleInDomain(double x) {
-                  return (x - dotRadiusX) >= visibleMinX &&
-                      (x + dotRadiusX) <= visibleMaxX;
-                }
-
-                bool canRenderValueLabel(int day, String valueText) {
-                  if (valueText.isEmpty) {
-                    return false;
-                  }
-                  final double dayX = day.toDouble();
-                  return isPointFullyVisibleInDomain(dayX);
-                }
-
                 bool canRenderDayLabel(int day) {
                   final double dayX = day.toDouble();
                   // Date labels follow the same visibility rule as the dot:
@@ -2553,13 +2540,7 @@ class _MonthDailyLineCardState extends State<_MonthDailyLineCard> {
                                             }
                                             final String valueText =
                                                 '${(rawHoursByDay[day] ?? spot.y).toStringAsFixed(1)}h';
-                                            if (!isPointFullyVisibleInDomain(
-                                                  day.toDouble(),
-                                                ) ||
-                                                !canRenderValueLabel(
-                                                  day,
-                                                  valueText,
-                                                )) {
+                                            if (valueText.isEmpty) {
                                               return FlDotCirclePainter(
                                                 radius: 0,
                                                 color: Colors.transparent,
@@ -2574,6 +2555,10 @@ class _MonthDailyLineCardState extends State<_MonthDailyLineCard> {
                                               strokeColor: lineColor,
                                               valueText: valueText,
                                               textStyle: valueLabelStyle,
+                                              showValueText:
+                                                  isPointVisibleInDomain(
+                                                    day.toDouble(),
+                                                  ),
                                             );
                                           },
                                     ),
@@ -3028,11 +3013,6 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
                       (x - dotRadiusX) <= visibleMaxX;
                 }
 
-                bool isPointFullyVisibleInDomain(double x) {
-                  return (x - dotRadiusX) >= visibleMinX &&
-                      (x + dotRadiusX) <= visibleMaxX;
-                }
-
                 int? resolveMonthFromTouch(
                   FlTouchEvent event,
                   LineTouchResponse? response,
@@ -3340,14 +3320,12 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
                                             }
                                             final String valueText =
                                                 '${(rawHoursByMonth[month] ?? spot.y).toStringAsFixed(1)}h';
-                                            if (!isPointFullyVisibleInDomain(
-                                              month.toDouble(),
-                                            )) {
+                                            if (valueText.isEmpty) {
                                               return FlDotCirclePainter(
-                                                radius: 2.8,
-                                                color: dotFillColor,
-                                                strokeColor: lineColor,
-                                                strokeWidth: 1.8,
+                                                radius: 0,
+                                                color: Colors.transparent,
+                                                strokeColor: Colors.transparent,
+                                                strokeWidth: 0,
                                               );
                                             }
                                             return _ValueDotPainter(
@@ -3357,6 +3335,10 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
                                               strokeColor: lineColor,
                                               valueText: valueText,
                                               textStyle: valueLabelStyle,
+                                              showValueText:
+                                                  isPointVisibleInDomain(
+                                                    month.toDouble(),
+                                                  ),
                                             );
                                           },
                                     ),
@@ -3557,6 +3539,7 @@ class _ValueDotPainter extends FlDotPainter {
     required this.strokeWidth,
     required this.valueText,
     required this.textStyle,
+    this.showValueText = true,
     this.textGap = 4,
   });
 
@@ -3566,6 +3549,7 @@ class _ValueDotPainter extends FlDotPainter {
   final double strokeWidth;
   final String valueText;
   final TextStyle textStyle;
+  final bool showValueText;
   final double textGap;
 
   @override
@@ -3602,6 +3586,10 @@ class _ValueDotPainter extends FlDotPainter {
         ..style = PaintingStyle.fill,
     );
 
+    if (!showValueText || valueText.isEmpty) {
+      return;
+    }
+
     final TextPainter painter = TextPainter(
       text: TextSpan(text: valueText, style: textStyle),
       textDirection: TextDirection.ltr,
@@ -3637,6 +3625,7 @@ class _ValueDotPainter extends FlDotPainter {
             ui.lerpDouble(a.strokeWidth, b.strokeWidth, t) ?? b.strokeWidth,
         valueText: t < 0.5 ? a.valueText : b.valueText,
         textStyle: TextStyle.lerp(a.textStyle, b.textStyle, t) ?? b.textStyle,
+        showValueText: t < 0.5 ? a.showValueText : b.showValueText,
         textGap: ui.lerpDouble(a.textGap, b.textGap, t) ?? b.textGap,
       );
     }
@@ -3651,6 +3640,7 @@ class _ValueDotPainter extends FlDotPainter {
     strokeWidth,
     valueText,
     textStyle,
+    showValueText,
     textGap,
   ];
 }
