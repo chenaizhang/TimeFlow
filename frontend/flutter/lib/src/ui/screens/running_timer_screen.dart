@@ -475,8 +475,7 @@ class _CountdownCenterRing extends StatelessWidget {
                     painter: _CountdownRingPainter(
                       progress: animatedProgress,
                       trackColor: colors.outline.withValues(alpha: 0.22),
-                      progressStartColor: colors.primary.withValues(alpha: 0.3),
-                      progressEndColor: colors.primary,
+                      progressColor: colors.primary,
                       markerColor: colors.primary,
                     ),
                     child: Center(child: child),
@@ -520,15 +519,13 @@ class _CountdownRingPainter extends CustomPainter {
   const _CountdownRingPainter({
     required this.progress,
     required this.trackColor,
-    required this.progressStartColor,
-    required this.progressEndColor,
+    required this.progressColor,
     required this.markerColor,
   });
 
   final double progress;
   final Color trackColor;
-  final Color progressStartColor;
-  final Color progressEndColor;
+  final Color progressColor;
   final Color markerColor;
 
   @override
@@ -557,11 +554,7 @@ class _CountdownRingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round
-      ..shader = SweepGradient(
-        startAngle: -math.pi / 2,
-        endAngle: -math.pi / 2 + sweep,
-        colors: <Color>[progressStartColor, progressEndColor],
-      ).createShader(rect);
+      ..color = progressColor;
     canvas.drawArc(rect, -math.pi / 2, sweep, false, progressPaint);
 
     final double markerAngle = -math.pi / 2 + sweep;
@@ -578,8 +571,7 @@ class _CountdownRingPainter extends CustomPainter {
   bool shouldRepaint(covariant _CountdownRingPainter oldDelegate) {
     return oldDelegate.progress != progress ||
         oldDelegate.trackColor != trackColor ||
-        oldDelegate.progressStartColor != progressStartColor ||
-        oldDelegate.progressEndColor != progressEndColor ||
+        oldDelegate.progressColor != progressColor ||
         oldDelegate.markerColor != markerColor;
   }
 }
