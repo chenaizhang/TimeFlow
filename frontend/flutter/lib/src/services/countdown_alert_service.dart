@@ -10,6 +10,9 @@ class CountdownAlertService {
   CountdownAlertService._();
 
   static final CountdownAlertService instance = CountdownAlertService._();
+  static const MethodChannel _ongoingProgressChannel = MethodChannel(
+    'com.francis.timeflow/ongoing_progress',
+  );
 
   static const int _countdownNotificationId = 41001;
   static const int _pauseNotificationId = 41002;
@@ -154,6 +157,54 @@ class CountdownAlertService {
       enableRingtone: true,
       enableVibration: true,
     );
+  }
+
+  Future<void> startOrUpdateOngoingProgress({
+    required bool isPauseMode,
+    required String projectName,
+    required DateTime endTime,
+    required int totalSeconds,
+  }) async {
+    if (!_isAndroid) {
+      return;
+    }
+    if (totalSeconds <= 0) {
+      await stopOngoingProgress();
+      return;
+    }
+
+    try {
+      await _ongoingProgressChannel
+          .invokeMethod<void>('startOrUpdate', <String, Object>{
+            'mode': isPauseMode ? 'pause' : 'countdown',
+            'projectName': projectName,
+            'endAtEpochMs': endTime.millisecondsSinceEpoch,
+            'totalSeconds': totalSeconds,
+          });
+    } catch (_) {}
+  }
+
+  Future<void> stopOngoingProgress() async {
+    if (!_isAndroid) {
+      return;
+    }
+    try {
+      await _ongoingProgressChannel.invokeMethod<void>('stop');
+    } catch (_) {}
+  }
+
+  Future<bool> openPromotedNotificationSettings() async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      return await _ongoingProgressChannel.invokeMethod<bool>(
+            'openPromotedNotificationSettings',
+          ) ??
+          false;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> scheduleBackgroundPauseReminder({

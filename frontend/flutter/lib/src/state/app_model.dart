@@ -284,6 +284,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _syncBackgroundReminders() async {
     final RunningTimerInfo? running = _runningTimer;
+    await _syncOngoingProgressNotification(running);
     if (running == null) {
       await _countdownAlertService.cancelBackgroundCountdownReminder();
       await _countdownAlertService.cancelBackgroundPauseReminder();
@@ -350,6 +351,69 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
       projectName: project.name,
       enableRingtone: project.enableRingtone,
       enableVibration: project.enableVibration,
+    );
+  }
+
+  Future<void> _syncOngoingProgressNotification(
+    RunningTimerInfo? running,
+  ) async {
+    if (running == null) {
+      await _countdownAlertService.stopOngoingProgress();
+      return;
+    }
+
+    final DateTime now = DateTime.now();
+    if (running.timer.isPaused) {
+      final int consumed = running.timer.pausedSecondsTotal.clamp(
+        0,
+        RunningTimerInfo.pauseBudgetSeconds,
+      );
+      final int remaining = RunningTimerInfo.pauseBudgetSeconds - consumed;
+      final DateTime? pauseStartedAt = running.timer.pauseStartedAt;
+      if (pauseStartedAt == null || remaining <= 0) {
+        await _countdownAlertService.stopOngoingProgress();
+        return;
+      }
+
+      final DateTime pauseEndsAt = pauseStartedAt.add(
+        Duration(seconds: remaining),
+      );
+      if (!pauseEndsAt.isAfter(now)) {
+        await _countdownAlertService.stopOngoingProgress();
+        return;
+      }
+
+      await _countdownAlertService.startOrUpdateOngoingProgress(
+        isPauseMode: true,
+        projectName: running.project.name,
+        endTime: pauseEndsAt,
+        totalSeconds: remaining,
+      );
+      return;
+    }
+
+    if (!running.isCountdown) {
+      await _countdownAlertService.stopOngoingProgress();
+      return;
+    }
+
+    final int consumedPauseSeconds = running.timer.pausedSecondsTotal.clamp(
+      0,
+      RunningTimerInfo.pauseBudgetSeconds,
+    );
+    final DateTime countdownEndsAt = running.timer.startTime.add(
+      Duration(seconds: running.countdownTargetSeconds + consumedPauseSeconds),
+    );
+    if (!countdownEndsAt.isAfter(now)) {
+      await _countdownAlertService.stopOngoingProgress();
+      return;
+    }
+
+    await _countdownAlertService.startOrUpdateOngoingProgress(
+      isPauseMode: false,
+      projectName: running.project.name,
+      endTime: countdownEndsAt,
+      totalSeconds: running.countdownTargetSeconds,
     );
   }
 

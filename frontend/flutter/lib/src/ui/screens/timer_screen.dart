@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/timeflow_repository.dart';
 import '../../models/models.dart';
+import '../../services/countdown_alert_service.dart';
 import '../../state/app_model.dart';
 import '../widgets/project_editor_sheet.dart';
 
@@ -10,6 +12,9 @@ DateTime? _lastNeedGroupHintAt;
 
 class TimerScreen extends StatelessWidget {
   const TimerScreen({super.key});
+
+  static bool get _showPromotedNotificationSettingsEntry =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   @override
   Widget build(BuildContext context) {
@@ -20,6 +25,12 @@ class TimerScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('待办集'),
         actions: <Widget>[
+          if (_showPromotedNotificationSettingsEntry)
+            IconButton(
+              tooltip: '通知提升设置',
+              onPressed: () => _openPromotedNotificationSettings(context),
+              icon: const Icon(Icons.notifications_active_outlined),
+            ),
           IconButton(
             tooltip: '新增待办集',
             onPressed: () => _createGroup(context, model),
@@ -62,6 +73,18 @@ class TimerScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openPromotedNotificationSettings(BuildContext context) async {
+    final bool opened = await CountdownAlertService.instance
+        .openPromotedNotificationSettings();
+    if (!context.mounted || opened) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('当前系统未提供通知提升设置入口')),
     );
   }
 
