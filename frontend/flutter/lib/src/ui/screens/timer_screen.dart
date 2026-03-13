@@ -17,9 +17,40 @@ class TimerScreen extends StatefulWidget {
   State<TimerScreen> createState() => _TimerScreenState();
 }
 
-class _TimerScreenState extends State<TimerScreen> {
-  late final Future<bool> _showPromotedNotificationSettingsEntryFuture =
-      _resolvePromotedNotificationSettingsEntry();
+class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
+  late Future<bool> _showPromotedNotificationSettingsEntryFuture;
+  late Future<bool> _showExactAlarmSettingsEntryFuture;
+  late Future<BackgroundAlertNotificationSettingsStatus>
+  _backgroundAlertSettingsStatusFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshSettingsEntryFutures();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) {
+      return;
+    }
+    setState(_refreshSettingsEntryFutures);
+  }
+
+  void _refreshSettingsEntryFutures() {
+    _showPromotedNotificationSettingsEntryFuture =
+        _resolvePromotedNotificationSettingsEntry();
+    _showExactAlarmSettingsEntryFuture = _resolveExactAlarmSettingsEntry();
+    _backgroundAlertSettingsStatusFuture =
+        _resolveBackgroundAlertNotificationSettingsStatus();
+  }
 
   static Future<bool> _resolvePromotedNotificationSettingsEntry() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
@@ -27,6 +58,22 @@ class _TimerScreenState extends State<TimerScreen> {
     }
     return CountdownAlertService.instance
         .supportsPromotedNotificationSettings();
+  }
+
+  static Future<bool> _resolveExactAlarmSettingsEntry() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    return CountdownAlertService.instance.needsExactAlarmPermissionEntry();
+  }
+
+  static Future<BackgroundAlertNotificationSettingsStatus>
+  _resolveBackgroundAlertNotificationSettingsStatus() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return const BackgroundAlertNotificationSettingsStatus.unsupported();
+    }
+    return CountdownAlertService.instance
+        .getBackgroundAlertNotificationSettingsStatus();
   }
 
   @override
@@ -51,6 +98,36 @@ class _TimerScreenState extends State<TimerScreen> {
               );
             },
           ),
+          FutureBuilder<bool>(
+            future: _showExactAlarmSettingsEntryFuture,
+            builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+              if (snapshot.data != true) {
+                return const SizedBox.shrink();
+              }
+              return IconButton(
+                tooltip: '精确提醒权限',
+                onPressed: () => _openExactAlarmSettings(context),
+                icon: const Icon(Icons.alarm_on_outlined),
+              );
+            },
+          ),
+          if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+            FutureBuilder<BackgroundAlertNotificationSettingsStatus>(
+              future: _backgroundAlertSettingsStatusFuture,
+              builder: (
+                BuildContext context,
+                AsyncSnapshot<BackgroundAlertNotificationSettingsStatus>
+                snapshot,
+              ) {
+                final bool showAttention = snapshot.data?.needsAttention == true;
+                return _AppBarAttentionIconButton(
+                  tooltip: '提醒通知设置',
+                  showAttention: showAttention,
+                  icon: const Icon(Icons.notification_important_outlined),
+                  onPressed: () => _openBackgroundAlertSettingsPanel(context),
+                );
+              },
+            ),
           IconButton(
             tooltip: '新增待办集',
             onPressed: () => _createGroup(context, model),
@@ -106,6 +183,105 @@ class _TimerScreenState extends State<TimerScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('当前系统未提供通知提升设置入口')));
+  }
+
+  Future<void> _openExactAlarmSettings(BuildContext context) async {
+    final bool opened = await CountdownAlertService.instance
+        .openExactAlarmSettings();
+    if (!context.mounted || opened) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('当前系统未提供精确提醒权限入口')));
+  }
+
+  Future<void> _openBackgroundAlertSettingsPanel(BuildContext context) async {
+    final BackgroundAlertNotificationSettingsStatus status =
+        await CountdownAlertService.instance
+            .getBackgroundAlertNotificationSettingsStatus();
+    if (!context.mounted || !status.supported) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (BuildContext sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                '提醒通知设置',
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '请确认已为结束提醒开启悬浮通知和振动。',
+                style: Theme.of(sheetContext).textTheme.bodyMedium,
+              ),
+              if (!status.notificationsEnabled) ...<Widget>[
+                const SizedBox(height: 12),
+                Text(
+                  '系统通知总开关当前未开启。',
+                  style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(sheetContext).colorScheme.error,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              ...status.channels.map((BackgroundAlertChannelSettingsStatus item) {
+                return _BackgroundAlertSettingsTile(
+                  title: item.title,
+                  floatingEnabled: item.floatingEnabled,
+                  vibrationEnabled: item.vibrationEnabled,
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _openBackgroundAlertChannelSettings(
+                      context,
+                      alertKind: item.kind,
+                    );
+                  },
+                );
+              }),
+              if (status.floatingStatusNote.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 8),
+                Text(
+                  status.floatingStatusNote,
+                  style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+
+    if (mounted) {
+      setState(_refreshSettingsEntryFutures);
+    }
+  }
+
+  Future<void> _openBackgroundAlertChannelSettings(
+    BuildContext context, {
+    required String alertKind,
+  }) async {
+    final bool opened = await CountdownAlertService.instance
+        .openBackgroundAlertNotificationSettings(alertKind: alertKind);
+    if (!context.mounted || opened) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('当前系统未提供提醒通知设置入口')));
   }
 
   Future<void> _createGroup(BuildContext context, AppModel model) async {
@@ -266,6 +442,116 @@ class _TimerScreenState extends State<TimerScreen> {
       ..hideCurrentSnackBar()
       ..clearSnackBars()
       ..showSnackBar(const SnackBar(content: Text('请先创建代办集')));
+  }
+}
+
+class _AppBarAttentionIconButton extends StatelessWidget {
+  const _AppBarAttentionIconButton({
+    required this.tooltip,
+    required this.showAttention,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final bool showAttention;
+  final Widget icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        IconButton(tooltip: tooltip, onPressed: onPressed, icon: icon),
+        if (showAttention)
+          Positioned(
+            right: 10,
+            top: 10,
+            child: Container(
+              width: 9,
+              height: 9,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.error,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _BackgroundAlertSettingsTile extends StatelessWidget {
+  const _BackgroundAlertSettingsTile({
+    required this.title,
+    required this.floatingEnabled,
+    required this.vibrationEnabled,
+    required this.onTap,
+  });
+
+  final String title;
+  final bool floatingEnabled;
+  final bool vibrationEnabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        title: Text(title),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              _SettingsStatusChip(
+                label: '悬浮通知',
+                enabled: floatingEnabled,
+              ),
+              _SettingsStatusChip(label: '振动', enabled: vibrationEnabled),
+            ],
+          ),
+        ),
+        trailing: const Icon(Icons.open_in_new),
+      ),
+    );
+  }
+}
+
+class _SettingsStatusChip extends StatelessWidget {
+  const _SettingsStatusChip({required this.label, required this.enabled});
+
+  final String label;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final Color background = enabled
+        ? colorScheme.primaryContainer
+        : colorScheme.errorContainer;
+    final Color foreground = enabled
+        ? colorScheme.onPrimaryContainer
+        : colorScheme.onErrorContainer;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label ${enabled ? '已开启' : '未开启'}',
+        style: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(color: foreground),
+      ),
+    );
   }
 }
 

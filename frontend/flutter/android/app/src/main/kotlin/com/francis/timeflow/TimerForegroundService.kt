@@ -32,7 +32,7 @@ class TimerForegroundService : Service() {
 
     private const val CHANNEL_ID = "timeflow_ongoing_progress_v2"
     private const val CHANNEL_NAME = "实时计时进度"
-    private const val NOTIFICATION_ID = 42001
+    const val NOTIFICATION_ID = 42001
   }
 
   private val handler = Handler(Looper.getMainLooper())
@@ -82,10 +82,21 @@ class TimerForegroundService : Service() {
     tickerRunnable =
       object : Runnable {
         override fun run() {
-          updateNotification(forceStartForeground = false)
-          if (remainingSeconds(nowEpochMs = System.currentTimeMillis()) > 0) {
-            handler.postDelayed(this, 1_000L)
+          if (remainingSeconds(nowEpochMs = System.currentTimeMillis()) <= 0) {
+            stopTicker()
+            val pausedProjectName = projectName
+            stopForegroundAndSelf()
+            if (mode == MODE_PAUSE) {
+              CountdownAlarmScheduler.cancelPauseEnded(this@TimerForegroundService)
+              CountdownAlarmScheduler.notifyPauseEndedIfBackground(
+                context = this@TimerForegroundService,
+                projectName = pausedProjectName,
+              )
+            }
+            return
           }
+          updateNotification(forceStartForeground = false)
+          handler.postDelayed(this, 1_000L)
         }
       }
     handler.post(tickerRunnable!!)

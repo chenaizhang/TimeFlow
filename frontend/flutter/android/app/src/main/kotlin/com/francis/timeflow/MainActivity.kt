@@ -21,12 +21,30 @@ class MainActivity : FlutterActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    CountdownAlarmScheduler.dismissPresentedAlerts(applicationContext)
     maybeRunDebugPromotedCheck(intent)
+  }
+
+  override fun onStart() {
+    super.onStart()
+    CountdownAlarmScheduler.dismissPresentedAlerts(applicationContext)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    AppVisibilityTracker.isActivityResumed = true
+    CountdownAlarmScheduler.dismissPresentedAlerts(applicationContext)
+  }
+
+  override fun onPause() {
+    AppVisibilityTracker.isActivityResumed = false
+    super.onPause()
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
+    CountdownAlarmScheduler.dismissPresentedAlerts(applicationContext)
     maybeRunDebugPromotedCheck(intent)
   }
 
@@ -58,6 +76,76 @@ class MainActivity : FlutterActivity() {
           "stop" -> {
             stopOngoingProgressService()
             result.success(null)
+          }
+
+          "scheduleBackgroundCountdownAlarm" -> {
+            val projectName = call.argument<String>("projectName") ?: ""
+            val endAtEpochMs = call.numberArg("endAtEpochMs")?.toLong()
+            val enableRingtone = call.argument<Boolean>("enableRingtone") ?: true
+            val enableVibration = call.argument<Boolean>("enableVibration") ?: true
+
+            if (endAtEpochMs == null || endAtEpochMs <= 0L) {
+              result.error("invalid_args", "Missing required countdown alarm args", null)
+              return@setMethodCallHandler
+            }
+
+            CountdownAlarmScheduler.schedule(
+              context = applicationContext,
+              endAtEpochMs = endAtEpochMs,
+              projectName = projectName,
+              enableRingtone = enableRingtone,
+              enableVibration = enableVibration,
+            )
+            result.success(null)
+          }
+
+          "cancelBackgroundCountdownAlarm" -> {
+            CountdownAlarmScheduler.cancel(applicationContext)
+            result.success(null)
+          }
+
+          "scheduleBackgroundPauseAlarm" -> {
+            val projectName = call.argument<String>("projectName") ?: ""
+            val endAtEpochMs = call.numberArg("endAtEpochMs")?.toLong()
+
+            if (endAtEpochMs == null || endAtEpochMs <= 0L) {
+              result.error("invalid_args", "Missing required pause alarm args", null)
+              return@setMethodCallHandler
+            }
+
+            CountdownAlarmScheduler.schedulePauseEnded(
+              context = applicationContext,
+              endAtEpochMs = endAtEpochMs,
+              projectName = projectName,
+            )
+            result.success(null)
+          }
+
+          "cancelBackgroundPauseAlarm" -> {
+            CountdownAlarmScheduler.cancelPauseEnded(applicationContext)
+            result.success(null)
+          }
+
+          "getExactAlarmStatus" -> {
+            result.success(getExactAlarmStatus())
+          }
+
+          "openExactAlarmSettings" -> {
+            result.success(CountdownAlarmScheduler.openExactAlarmSettings(applicationContext))
+          }
+
+          "getBackgroundAlertNotificationSettingsStatus" -> {
+            result.success(CountdownAlarmScheduler.getBackgroundAlertSettingsStatus(applicationContext))
+          }
+
+          "openBackgroundAlertNotificationSettings" -> {
+            val alertKind = call.argument<String>("alertKind") ?: "countdown"
+            result.success(
+              CountdownAlarmScheduler.openBackgroundAlertSettings(
+                context = applicationContext,
+                alertKind = alertKind,
+              ),
+            )
           }
 
           "getPromotedNotificationStatus" -> {
@@ -98,6 +186,14 @@ class MainActivity : FlutterActivity() {
   private fun stopOngoingProgressService() {
     val intent = Intent(applicationContext, TimerForegroundService::class.java)
     applicationContext.stopService(intent)
+  }
+
+  private fun getExactAlarmStatus(): Map<String, Any?> {
+    return mapOf(
+      "sdkInt" to Build.VERSION.SDK_INT,
+      "supportsExactAlarmSettings" to CountdownAlarmScheduler.supportsExactAlarmSettings(),
+      "exactAlarmAllowed" to CountdownAlarmScheduler.canScheduleExactAlarms(applicationContext),
+    )
   }
 
   private fun maybeRunDebugPromotedCheck(intent: Intent?) {

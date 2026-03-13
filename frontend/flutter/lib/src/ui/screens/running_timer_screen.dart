@@ -64,6 +64,7 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
 
     if (isPaused &&
         pauseRemaining.inSeconds == 0 &&
+        !model.resyncingFromBackground &&
         !_pauseLimitAutoEnding &&
         !_stopping) {
       _pauseLimitAutoEnding = true;
@@ -77,6 +78,7 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
 
     if (isCountdown &&
         remaining.inSeconds == 0 &&
+        !model.resyncingFromBackground &&
         !_stopping &&
         !_autoStopTriggered) {
       _autoStopTriggered = true;

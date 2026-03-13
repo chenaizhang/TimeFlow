@@ -22,12 +22,13 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
   RunningTimerInfo? _runningTimer;
   DateTime _now = DateTime.now();
   Timer? _ticker;
-  bool _appInForeground = true;
+  bool _resyncingFromBackground = false;
 
   bool get initialized => _initialized;
   bool get loading => _loading;
   String? get lastError => _lastError;
   int get dataVersion => _dataVersion;
+  bool get resyncingFromBackground => _resyncingFromBackground;
 
   List<ProjectGroupBundle> get bundles => _bundles;
   RunningTimerInfo? get runningTimer => _runningTimer;
@@ -243,17 +244,26 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        _appInForeground = true;
-        unawaited(_syncBackgroundReminders());
-        unawaited(refreshAll());
+        _resyncingFromBackground = true;
+        notifyListeners();
+        unawaited(_handleResumeRefresh());
         break;
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
-        _appInForeground = false;
         unawaited(_syncBackgroundReminders());
         break;
+    }
+  }
+
+  Future<void> _handleResumeRefresh() async {
+    try {
+      await _syncBackgroundReminders();
+      await refreshAll();
+    } finally {
+      _resyncingFromBackground = false;
+      notifyListeners();
     }
   }
 
@@ -292,11 +302,6 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     if (running.timer.isPaused) {
-      await _countdownAlertService.cancelBackgroundCountdownReminder();
-      if (_appInForeground) {
-        await _countdownAlertService.cancelBackgroundPauseReminder();
-        return;
-      }
       final int consumed = running.timer.pausedSecondsTotal.clamp(
         0,
         RunningTimerInfo.pauseBudgetSeconds,
@@ -304,6 +309,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
       final int remaining = RunningTimerInfo.pauseBudgetSeconds - consumed;
       final DateTime? pauseStartedAt = running.timer.pauseStartedAt;
       if (pauseStartedAt == null || remaining <= 0) {
+        await _countdownAlertService.cancelBackgroundCountdownReminder();
         await _countdownAlertService.cancelBackgroundPauseReminder();
         return;
       }
@@ -311,13 +317,39 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
         Duration(seconds: remaining),
       );
       if (!pauseEndsAt.isAfter(DateTime.now())) {
+        await _countdownAlertService.cancelBackgroundCountdownReminder();
         await _countdownAlertService.cancelBackgroundPauseReminder();
         return;
       }
-      await _countdownAlertService.scheduleBackgroundPauseReminder(
-        endTime: pauseEndsAt,
-        projectName: running.project.name,
-      );
+
+      if (running.isCountdown) {
+        final ProjectItem project = running.project;
+        if (!project.enableRingtone && !project.enableVibration) {
+          await _countdownAlertService.cancelBackgroundCountdownReminder();
+        } else {
+          final DateTime countdownEndsAt = running.timer.startTime.add(
+            Duration(
+              seconds:
+                  running.countdownTargetSeconds +
+                  RunningTimerInfo.pauseBudgetSeconds,
+            ),
+          );
+          if (!countdownEndsAt.isAfter(DateTime.now())) {
+            await _countdownAlertService.cancelBackgroundCountdownReminder();
+          } else {
+            await _countdownAlertService.scheduleBackgroundCountdownReminder(
+              endTime: countdownEndsAt,
+              projectName: project.name,
+              enableRingtone: project.enableRingtone,
+              enableVibration: project.enableVibration,
+            );
+          }
+        }
+      } else {
+        await _countdownAlertService.cancelBackgroundCountdownReminder();
+      }
+
+      await _countdownAlertService.cancelBackgroundPauseReminder();
       return;
     }
 
@@ -329,7 +361,7 @@ class AppModel extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
-    if (!running.isCountdown || _appInForeground) {
+    if (!running.isCountdown) {
       await _countdownAlertService.cancelBackgroundCountdownReminder();
       return;
     }

@@ -2,9 +2,83 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
-import 'package:timezone/data/latest_all.dart' as tz_data;
-import 'package:timezone/timezone.dart' as tz;
 import 'package:vibration/vibration.dart';
+
+class BackgroundAlertChannelSettingsStatus {
+  const BackgroundAlertChannelSettingsStatus({
+    required this.kind,
+    required this.title,
+    required this.floatingEnabled,
+    required this.vibrationEnabled,
+    required this.needsAttention,
+  });
+
+  factory BackgroundAlertChannelSettingsStatus.fromMap(
+    Map<Object?, Object?> map,
+  ) {
+    return BackgroundAlertChannelSettingsStatus(
+      kind: map['kind'] as String? ?? 'countdown',
+      title: map['title'] as String? ?? '提醒通知',
+      floatingEnabled: map['floatingEnabled'] == true,
+      vibrationEnabled: map['vibrationEnabled'] == true,
+      needsAttention: map['needsAttention'] == true,
+    );
+  }
+
+  final String kind;
+  final String title;
+  final bool floatingEnabled;
+  final bool vibrationEnabled;
+  final bool needsAttention;
+}
+
+class BackgroundAlertNotificationSettingsStatus {
+  const BackgroundAlertNotificationSettingsStatus({
+    required this.supported,
+    required this.notificationsEnabled,
+    required this.channels,
+    required this.floatingStatusNote,
+  });
+
+  const BackgroundAlertNotificationSettingsStatus.unsupported()
+    : supported = false,
+      notificationsEnabled = false,
+      channels = const <BackgroundAlertChannelSettingsStatus>[],
+      floatingStatusNote = '';
+
+  factory BackgroundAlertNotificationSettingsStatus.fromMap(
+    Map<Object?, Object?> map,
+  ) {
+    final List<Object?> rawChannels =
+        (map['channels'] as List<Object?>?) ?? const <Object?>[];
+    return BackgroundAlertNotificationSettingsStatus(
+      supported: true,
+      notificationsEnabled: map['notificationsEnabled'] == true,
+      channels: rawChannels
+          .whereType<Map<Object?, Object?>>()
+          .map(BackgroundAlertChannelSettingsStatus.fromMap)
+          .toList(growable: false),
+      floatingStatusNote: map['floatingStatusNote'] as String? ?? '',
+    );
+  }
+
+  final bool supported;
+  final bool notificationsEnabled;
+  final List<BackgroundAlertChannelSettingsStatus> channels;
+  final String floatingStatusNote;
+
+  bool get needsAttention {
+    if (!supported) {
+      return false;
+    }
+    if (!notificationsEnabled) {
+      return true;
+    }
+    return channels.any((BackgroundAlertChannelSettingsStatus item) {
+      return item.needsAttention;
+    });
+  }
+}
 
 class CountdownAlertService {
   CountdownAlertService._();
@@ -15,16 +89,11 @@ class CountdownAlertService {
   );
 
   static const int _countdownNotificationId = 41001;
-  static const int _pauseNotificationId = 41002;
-  static const String _pauseAlertChannelId = 'timeflow_pause_alerts_v2';
-  static const String _pauseAlertChannelName = '暂停结束提醒(铃声+震动)';
-
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
   final FlutterRingtonePlayer _ringtonePlayer = FlutterRingtonePlayer();
 
   bool _initialized = false;
-  bool _timezoneInitialized = false;
   bool? _hasVibrator;
 
   bool get _isAndroid =>
@@ -99,57 +168,38 @@ class CountdownAlertService {
       return;
     }
 
-    await _ensureTimezoneInitialized();
-    final tz.TZDateTime scheduled = tz.TZDateTime.from(endTime.toUtc(), tz.UTC);
-    final tz.TZDateTime now = tz.TZDateTime.now(tz.UTC);
-    if (!scheduled.isAfter(now.add(const Duration(seconds: 1)))) {
+    if (!endTime.isAfter(DateTime.now().add(const Duration(seconds: 1)))) {
       await cancelBackgroundCountdownReminder();
       return;
     }
 
-    final AndroidScheduleMode scheduleMode =
-        await _resolveAndroidScheduleMode();
-    final String channelId = _channelId(
-      enableRingtone: enableRingtone,
-      enableVibration: enableVibration,
-    );
-    final String channelName = _channelName(
-      enableRingtone: enableRingtone,
-      enableVibration: enableVibration,
-    );
-    final AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-          channelId,
-          channelName,
-          channelDescription: '用于倒计时结束时的提醒通知',
-          importance: Importance.max,
-          priority: Priority.high,
-          playSound: enableRingtone,
-          enableVibration: enableVibration,
-          vibrationPattern: enableVibration
-              ? Int64List.fromList(<int>[0, 350, 120, 350])
-              : null,
-          category: AndroidNotificationCategory.alarm,
-          ticker: '倒计时结束',
-          visibility: NotificationVisibility.public,
-        );
+    await _notifications.cancel(id: _countdownNotificationId);
 
-    await _notifications.zonedSchedule(
-      id: _countdownNotificationId,
-      title: '倒计时结束',
-      body: '“$projectName”倒计时已结束',
-      scheduledDate: scheduled,
-      notificationDetails: NotificationDetails(android: androidDetails),
-      androidScheduleMode: scheduleMode,
-      payload: 'countdown_finished',
-    );
+    try {
+      await _ongoingProgressChannel.invokeMethod<void>(
+        'scheduleBackgroundCountdownAlarm',
+        <String, Object>{
+          'projectName': projectName,
+          'endAtEpochMs': endTime.millisecondsSinceEpoch,
+          'enableRingtone': enableRingtone,
+          'enableVibration': enableVibration,
+        },
+      );
+    } catch (_) {}
   }
 
   Future<void> cancelBackgroundCountdownReminder() async {
-    if (!_isAndroid || !_initialized) {
+    if (!_isAndroid) {
       return;
     }
-    await _notifications.cancel(id: _countdownNotificationId);
+    if (_initialized) {
+      await _notifications.cancel(id: _countdownNotificationId);
+    }
+    try {
+      await _ongoingProgressChannel.invokeMethod<void>(
+        'cancelBackgroundCountdownAlarm',
+      );
+    } catch (_) {}
   }
 
   Future<void> notifyPauseEndedForeground() async {
@@ -220,6 +270,72 @@ class CountdownAlertService {
     }
   }
 
+  Future<bool> needsExactAlarmPermissionEntry() async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      final Map<Object?, Object?>? status = await _ongoingProgressChannel
+          .invokeMethod<Map<Object?, Object?>>('getExactAlarmStatus');
+      final bool supportsSettings =
+          status?['supportsExactAlarmSettings'] == true;
+      final bool exactAlarmAllowed = status?['exactAlarmAllowed'] == true;
+      return supportsSettings && !exactAlarmAllowed;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> openExactAlarmSettings() async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      return await _ongoingProgressChannel.invokeMethod<bool>(
+            'openExactAlarmSettings',
+          ) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<BackgroundAlertNotificationSettingsStatus>
+  getBackgroundAlertNotificationSettingsStatus() async {
+    if (!_isAndroid) {
+      return const BackgroundAlertNotificationSettingsStatus.unsupported();
+    }
+    try {
+      final Map<Object?, Object?>? status = await _ongoingProgressChannel
+          .invokeMethod<Map<Object?, Object?>>(
+            'getBackgroundAlertNotificationSettingsStatus',
+          );
+      if (status == null) {
+        return const BackgroundAlertNotificationSettingsStatus.unsupported();
+      }
+      return BackgroundAlertNotificationSettingsStatus.fromMap(status);
+    } catch (_) {
+      return const BackgroundAlertNotificationSettingsStatus.unsupported();
+    }
+  }
+
+  Future<bool> openBackgroundAlertNotificationSettings({
+    required String alertKind,
+  }) async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      return await _ongoingProgressChannel.invokeMethod<bool>(
+            'openBackgroundAlertNotificationSettings',
+            <String, Object>{'alertKind': alertKind},
+          ) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> scheduleBackgroundPauseReminder({
     required DateTime endTime,
     required String projectName,
@@ -234,56 +350,31 @@ class CountdownAlertService {
       return;
     }
 
-    await _ensureTimezoneInitialized();
-    final tz.TZDateTime scheduled = tz.TZDateTime.from(endTime.toUtc(), tz.UTC);
-    final tz.TZDateTime now = tz.TZDateTime.now(tz.UTC);
-    if (!scheduled.isAfter(now.add(const Duration(seconds: 1)))) {
+    if (!endTime.isAfter(DateTime.now().add(const Duration(seconds: 1)))) {
       await cancelBackgroundPauseReminder();
       return;
     }
 
-    final AndroidScheduleMode scheduleMode =
-        await _resolveAndroidScheduleMode();
-    final AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-          _pauseAlertChannelId,
-          _pauseAlertChannelName,
-          channelDescription: '用于暂停额度耗尽后的提醒通知',
-          importance: Importance.max,
-          priority: Priority.high,
-          playSound: true,
-          enableVibration: true,
-          vibrationPattern: Int64List.fromList(<int>[0, 360, 120, 360]),
-          category: AndroidNotificationCategory.reminder,
-          ticker: '暂停结束',
-          visibility: NotificationVisibility.public,
-        );
-
-    await _notifications.zonedSchedule(
-      id: _pauseNotificationId,
-      title: '暂停结束',
-      body: '“$projectName”暂停结束，继续专注吧',
-      scheduledDate: scheduled,
-      notificationDetails: NotificationDetails(android: androidDetails),
-      androidScheduleMode: scheduleMode,
-      payload: 'pause_finished',
-    );
+    try {
+      await _ongoingProgressChannel.invokeMethod<void>(
+        'scheduleBackgroundPauseAlarm',
+        <String, Object>{
+          'projectName': projectName,
+          'endAtEpochMs': endTime.millisecondsSinceEpoch,
+        },
+      );
+    } catch (_) {}
   }
 
   Future<void> cancelBackgroundPauseReminder() async {
-    if (!_isAndroid || !_initialized) {
+    if (!_isAndroid) {
       return;
     }
-    await _notifications.cancel(id: _pauseNotificationId);
-  }
-
-  Future<void> _ensureTimezoneInitialized() async {
-    if (_timezoneInitialized) {
-      return;
-    }
-    tz_data.initializeTimeZones();
-    tz.setLocalLocation(tz.UTC);
-    _timezoneInitialized = true;
+    try {
+      await _ongoingProgressChannel.invokeMethod<void>(
+        'cancelBackgroundPauseAlarm',
+      );
+    } catch (_) {}
   }
 
   Future<bool> _canVibrate() async {
@@ -319,46 +410,4 @@ class CountdownAlertService {
     return granted ?? false;
   }
 
-  Future<AndroidScheduleMode> _resolveAndroidScheduleMode() async {
-    final AndroidFlutterLocalNotificationsPlugin? androidPlugin = _notifications
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    if (androidPlugin == null) {
-      return AndroidScheduleMode.inexactAllowWhileIdle;
-    }
-    final bool canExact =
-        await androidPlugin.canScheduleExactNotifications() ?? false;
-    if (!canExact) {
-      await androidPlugin.requestExactAlarmsPermission();
-      final bool canExactAfterRequest =
-          await androidPlugin.canScheduleExactNotifications() ?? false;
-      if (!canExactAfterRequest) {
-        return AndroidScheduleMode.inexactAllowWhileIdle;
-      }
-    }
-    return AndroidScheduleMode.exactAllowWhileIdle;
-  }
-
-  String _channelId({
-    required bool enableRingtone,
-    required bool enableVibration,
-  }) {
-    final String ringtoneKey = enableRingtone ? '1' : '0';
-    final String vibrationKey = enableVibration ? '1' : '0';
-    return 'timeflow_countdown_alerts_$ringtoneKey$vibrationKey';
-  }
-
-  String _channelName({
-    required bool enableRingtone,
-    required bool enableVibration,
-  }) {
-    if (enableRingtone && enableVibration) {
-      return '倒计时结束提醒(铃声+震动)';
-    }
-    if (enableRingtone) {
-      return '倒计时结束提醒(铃声)';
-    }
-    return '倒计时结束提醒(震动)';
-  }
 }

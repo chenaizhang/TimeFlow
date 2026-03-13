@@ -425,7 +425,9 @@ class TimeFlowRepository {
     final Database db = await _db;
     return db.transaction((Transaction tx) async {
       await _ensureSchemaColumns(tx);
-      await _materializePauseStateIfExpired(tx, DateTime.now().toUtc());
+      final DateTime nowUtc = DateTime.now().toUtc();
+      await _materializePauseStateIfExpired(tx, nowUtc);
+      await _materializeCountdownStateIfExpired(tx, nowUtc);
 
       final List<Map<String, Object?>> rows = await tx.query(
         'current_timer',
@@ -2031,6 +2033,45 @@ class TimeFlowRepository {
       'pause_started_at': null,
       'last_sync_time': _nowUtcString(),
     }, where: 'id = 1');
+  }
+
+  Future<void> _materializeCountdownStateIfExpired(
+    Transaction tx,
+    DateTime nowUtc,
+  ) async {
+    final List<Map<String, Object?>> rows = await tx.query(
+      'current_timer',
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return;
+    }
+
+    final Map<String, Object?> row = rows.first;
+    if ((row['timer_mode'] as String?) != 'countdown') {
+      return;
+    }
+    if (_readPauseStartedAtUtc(row) != null) {
+      return;
+    }
+
+    final int targetSeconds = ((row['target_seconds'] as num?)?.toInt() ?? 0);
+    if (targetSeconds < 60) {
+      return;
+    }
+
+    final DateTime startedAtUtc = DateTime.parse(
+      row['start_time'] as String,
+    ).toUtc();
+    final int pausedSeconds = _readPauseUsedSeconds(row);
+    final DateTime endedAtUtc = startedAtUtc.add(
+      Duration(seconds: targetSeconds + pausedSeconds),
+    );
+    if (endedAtUtc.isAfter(nowUtc)) {
+      return;
+    }
+
+    await _stopTimerInternal(tx, endedAtUtc);
   }
 
   String _normalizeName(String value) {
