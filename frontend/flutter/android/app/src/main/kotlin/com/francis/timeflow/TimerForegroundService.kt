@@ -150,7 +150,7 @@ class TimerForegroundService : Service() {
         .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         .addAction(buildOpenAction())
 
-    if (Build.VERSION.SDK_INT >= 36) {
+    if (PromotedNotificationSupport.supportsPromotedLiveUpdates()) {
       applyProgressStyle(
         builder = builder,
         consumed = consumed,

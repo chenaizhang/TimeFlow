@@ -115,19 +115,23 @@ class MainActivity : FlutterActivity() {
 
   private fun getPromotedNotificationStatus(): Map<String, Any?> {
     val notificationManager = getSystemService(NotificationManager::class.java)
-    val supportsPromoted = Build.VERSION.SDK_INT >= 36
+    val supportsPromoted = PromotedNotificationSupport.supportsPromotedLiveUpdates()
     return mapOf(
       "sdkInt" to Build.VERSION.SDK_INT,
       "notificationsEnabled" to NotificationManagerCompat.from(this).areNotificationsEnabled(),
       "supportsPromoted" to supportsPromoted,
-      "promotedAllowed" to resolvePromotedNotificationPermission(notificationManager),
+      "promotedAllowed" to resolvePromotedNotificationPermission(
+        notificationManager = notificationManager,
+        supportsPromoted = supportsPromoted,
+      ),
     )
   }
 
   private fun resolvePromotedNotificationPermission(
     notificationManager: NotificationManager?,
+    supportsPromoted: Boolean,
   ): Boolean? {
-    if (notificationManager == null || Build.VERSION.SDK_INT < 36) {
+    if (notificationManager == null || !supportsPromoted) {
       return null
     }
 
@@ -141,6 +145,10 @@ class MainActivity : FlutterActivity() {
   }
 
   private fun openPromotedNotificationSettings(): Boolean {
+    if (!PromotedNotificationSupport.supportsPromotedLiveUpdates()) {
+      return false
+    }
+
     val primaryIntent =
       Intent(resolvePromotedSettingsAction()).apply {
         putExtra(Settings.EXTRA_APP_PACKAGE, packageName)

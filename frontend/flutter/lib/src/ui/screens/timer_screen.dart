@@ -10,11 +10,24 @@ import '../widgets/project_editor_sheet.dart';
 
 DateTime? _lastNeedGroupHintAt;
 
-class TimerScreen extends StatelessWidget {
+class TimerScreen extends StatefulWidget {
   const TimerScreen({super.key});
 
-  static bool get _showPromotedNotificationSettingsEntry =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  @override
+  State<TimerScreen> createState() => _TimerScreenState();
+}
+
+class _TimerScreenState extends State<TimerScreen> {
+  late final Future<bool> _showPromotedNotificationSettingsEntryFuture =
+      _resolvePromotedNotificationSettingsEntry();
+
+  static Future<bool> _resolvePromotedNotificationSettingsEntry() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    return CountdownAlertService.instance
+        .supportsPromotedNotificationSettings();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,12 +38,19 @@ class TimerScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('待办集'),
         actions: <Widget>[
-          if (_showPromotedNotificationSettingsEntry)
-            IconButton(
-              tooltip: '通知提升设置',
-              onPressed: () => _openPromotedNotificationSettings(context),
-              icon: const Icon(Icons.notifications_active_outlined),
-            ),
+          FutureBuilder<bool>(
+            future: _showPromotedNotificationSettingsEntryFuture,
+            builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+              if (snapshot.data != true) {
+                return const SizedBox.shrink();
+              }
+              return IconButton(
+                tooltip: '通知提升设置',
+                onPressed: () => _openPromotedNotificationSettings(context),
+                icon: const Icon(Icons.notifications_active_outlined),
+              );
+            },
+          ),
           IconButton(
             tooltip: '新增待办集',
             onPressed: () => _createGroup(context, model),
@@ -83,9 +103,9 @@ class TimerScreen extends StatelessWidget {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('当前系统未提供通知提升设置入口')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('当前系统未提供通知提升设置入口')));
   }
 
   Future<void> _createGroup(BuildContext context, AppModel model) async {
@@ -437,7 +457,7 @@ class _ProjectCard extends StatelessWidget {
       if (!context.mounted) {
         return;
       }
-      TimerScreen._showError(context, error);
+      _TimerScreenState._showError(context, error);
     }
   }
 
@@ -479,7 +499,7 @@ class _ProjectCard extends StatelessWidget {
         context,
       ).showSnackBar(const SnackBar(content: Text('代办已删除')));
     } catch (error) {
-      TimerScreen._showError(context, error);
+      _TimerScreenState._showError(context, error);
     }
   }
 
@@ -520,7 +540,7 @@ class _ProjectCard extends StatelessWidget {
         context,
       ).showSnackBar(const SnackBar(content: Text('代办已更新')));
     } catch (error) {
-      TimerScreen._showError(context, error);
+      _TimerScreenState._showError(context, error);
     }
   }
 

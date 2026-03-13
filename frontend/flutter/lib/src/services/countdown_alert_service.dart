@@ -207,6 +207,19 @@ class CountdownAlertService {
     }
   }
 
+  Future<bool> supportsPromotedNotificationSettings() async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      final Map<Object?, Object?>? status = await _ongoingProgressChannel
+          .invokeMethod<Map<Object?, Object?>>('getPromotedNotificationStatus');
+      return status?['supportsPromoted'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> scheduleBackgroundPauseReminder({
     required DateTime endTime,
     required String projectName,
