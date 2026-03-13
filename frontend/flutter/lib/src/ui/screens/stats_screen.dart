@@ -1456,40 +1456,64 @@ class _DistributionCard extends StatelessWidget {
           const SizedBox(height: 10),
           LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                  child: Center(
-                    child: SegmentedButton<RangeType>(
-                      showSelectedIcon: false,
-                      segments: <ButtonSegment<RangeType>>[
-                        const ButtonSegment<RangeType>(
-                          value: RangeType.day,
-                          label: Text('日'),
-                        ),
-                        const ButtonSegment<RangeType>(
-                          value: RangeType.week,
-                          label: Text('周'),
-                        ),
-                        const ButtonSegment<RangeType>(
-                          value: RangeType.month,
-                          label: Text('月'),
-                        ),
-                        ButtonSegment<RangeType>(
-                          value: RangeType.custom,
-                          label: _CustomRangeLabel(
-                            animated: customAnimating,
-                            selected: rangeType == RangeType.custom,
-                          ),
-                        ),
-                      ],
-                      selected: <RangeType>{rangeType},
-                      onSelectionChanged: (Set<RangeType> value) {
-                        onTypeChanged(value.first);
-                      },
+              final double width = constraints.maxWidth;
+              final bool compact = width < 360;
+              final bool ultraCompact = width < 330;
+              final EdgeInsetsGeometry segmentPadding = EdgeInsets.symmetric(
+                horizontal: ultraCompact ? 4 : (compact ? 8 : 14),
+                vertical: ultraCompact ? 8 : 10,
+              );
+              final TextStyle segmentTextStyle =
+                  Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontSize: ultraCompact ? 11 : (compact ? 12 : 14),
+                    height: 1.0,
+                  ) ??
+                  TextStyle(fontSize: ultraCompact ? 11 : (compact ? 12 : 14));
+
+              return SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<RangeType>(
+                  showSelectedIcon: false,
+                  expandedInsets: EdgeInsets.zero,
+                  style: ButtonStyle(
+                    visualDensity: compact
+                        ? VisualDensity.compact
+                        : VisualDensity.standard,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(
+                      segmentPadding,
+                    ),
+                    textStyle: WidgetStatePropertyAll<TextStyle>(
+                      segmentTextStyle,
                     ),
                   ),
+                  segments: <ButtonSegment<RangeType>>[
+                    const ButtonSegment<RangeType>(
+                      value: RangeType.day,
+                      label: Text('日'),
+                    ),
+                    const ButtonSegment<RangeType>(
+                      value: RangeType.week,
+                      label: Text('周'),
+                    ),
+                    const ButtonSegment<RangeType>(
+                      value: RangeType.month,
+                      label: Text('月'),
+                    ),
+                    ButtonSegment<RangeType>(
+                      value: RangeType.custom,
+                      label: _CustomRangeLabel(
+                        animated: customAnimating,
+                        selected: rangeType == RangeType.custom,
+                        compact: compact,
+                        ultraCompact: ultraCompact,
+                      ),
+                    ),
+                  ],
+                  selected: <RangeType>{rangeType},
+                  onSelectionChanged: (Set<RangeType> value) {
+                    onTypeChanged(value.first);
+                  },
                 ),
               );
             },
@@ -1598,7 +1622,7 @@ class _MonthHourDistributionCard extends StatelessWidget {
               .map((MonthHourBucketItem item) => item.totalSeconds / 3600)
               .reduce(max)
         : 0;
-    final double chartMaxY = max(0.6, (maxHours * 1.25));
+    final _AxisScale axisScale = _buildBarAxisScale(maxHours * 1.25);
 
     return _SectionCard(
       child: Column(
@@ -1649,131 +1673,146 @@ class _MonthHourDistributionCard extends StatelessWidget {
               child: Text('该月暂无专注数据'),
             )
           else ...<Widget>[
-            SizedBox(
-              height: 220,
-              child: BarChart(
-                BarChartData(
-                  minY: 0,
-                  maxY: chartMaxY,
-                  gridData: FlGridData(
-                    show: true,
-                    horizontalInterval: chartMaxY <= 1 ? 0.5 : chartMaxY / 4,
-                    drawVerticalLine: false,
-                    getDrawingHorizontalLine: (_) => FlLine(
-                      color: Theme.of(
-                        context,
-                      ).dividerColor.withValues(alpha: 0.35),
-                      strokeWidth: 1,
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  barTouchData: BarTouchData(
-                    enabled: true,
-                    handleBuiltInTouches: false,
-                    touchTooltipData: BarTouchTooltipData(
-                      direction: TooltipDirection.top,
-                      getTooltipColor: (_) => Colors.transparent,
-                      tooltipPadding: EdgeInsets.zero,
-                      tooltipMargin: 4,
-                      fitInsideHorizontally: true,
-                      fitInsideVertically: true,
-                      getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                        if (groupIndex < 0 || groupIndex >= items.length) {
-                          return null;
-                        }
-                        final MonthHourBucketItem item = items[groupIndex];
-                        return BarTooltipItem(
-                          _formatBarTopHours(item.totalSeconds),
-                          Theme.of(context).textTheme.bodySmall?.copyWith(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w500,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.45),
-                              ) ??
-                              const TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0x8A000000),
-                              ),
-                        );
-                      },
-                    ),
-                  ),
-                  titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 34,
-                        interval: chartMaxY <= 1 ? 0.5 : chartMaxY / 4,
-                        getTitlesWidget: (double value, TitleMeta meta) {
-                          if (value == 0) {
-                            return const SizedBox.shrink();
-                          }
-                          return Text(
-                            '${value.toStringAsFixed(value < 1 ? 1 : 0)}h',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          );
-                        },
-                      ),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 26,
-                        getTitlesWidget: (double value, TitleMeta meta) {
-                          final int index = value.round();
-                          if (index < 0 || index >= items.length) {
-                            return const SizedBox.shrink();
-                          }
-                          final int hour = items[index].hour;
-                          if (hour % 3 != 0) {
-                            return const SizedBox.shrink();
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              '$hour',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  barGroups: List<BarChartGroupData>.generate(items.length, (
-                    int index,
-                  ) {
-                    final MonthHourBucketItem item = items[index];
-                    final bool showTopLabel = item.totalSeconds > 0;
-                    return BarChartGroupData(
-                      x: index,
-                      barsSpace: 0,
-                      showingTooltipIndicators: showTopLabel
-                          ? const <int>[0]
-                          : const <int>[],
-                      barRods: <BarChartRodData>[
-                        BarChartRodData(
-                          toY: item.totalSeconds / 3600,
-                          width: items.length <= 10 ? 14 : 10,
-                          borderRadius: const BorderRadius.all(
-                            Radius.circular(4),
-                          ),
+            LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final Set<int> labelIndices = _buildHourAxisLabelIndices(
+                  items: items,
+                  availableWidth: constraints.maxWidth,
+                );
+                return SizedBox(
+                  height: 220,
+                  child: BarChart(
+                    BarChartData(
+                      minY: 0,
+                      maxY: axisScale.maxValue,
+                      gridData: FlGridData(
+                        show: true,
+                        horizontalInterval: axisScale.interval,
+                        drawVerticalLine: false,
+                        getDrawingHorizontalLine: (_) => FlLine(
                           color: Theme.of(
                             context,
-                          ).colorScheme.primary.withValues(alpha: 0.8),
+                          ).dividerColor.withValues(alpha: 0.35),
+                          strokeWidth: 1,
                         ),
-                      ],
-                    );
-                  }),
-                ),
-              ),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      barTouchData: BarTouchData(
+                        enabled: true,
+                        handleBuiltInTouches: false,
+                        touchTooltipData: BarTouchTooltipData(
+                          direction: TooltipDirection.top,
+                          getTooltipColor: (_) => Colors.transparent,
+                          tooltipPadding: EdgeInsets.zero,
+                          tooltipMargin: 4,
+                          fitInsideHorizontally: true,
+                          fitInsideVertically: true,
+                          getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                            if (groupIndex < 0 || groupIndex >= items.length) {
+                              return null;
+                            }
+                            final MonthHourBucketItem item = items[groupIndex];
+                            return BarTooltipItem(
+                              _formatBarTopHours(item.totalSeconds),
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w500,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.45),
+                                  ) ??
+                                  const TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0x8A000000),
+                                  ),
+                            );
+                          },
+                        ),
+                      ),
+                      titlesData: FlTitlesData(
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 42,
+                            interval: axisScale.interval,
+                            getTitlesWidget: (double value, TitleMeta meta) {
+                              if (value <= 0 ||
+                                  (axisScale.maxValue - value).abs() < 0.0001 ||
+                                  value > axisScale.maxValue + 0.0001) {
+                                return const SizedBox.shrink();
+                              }
+                              return Text(
+                                _formatBarAxisHours(
+                                  value,
+                                  interval: axisScale.interval,
+                                ),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              );
+                            },
+                          ),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 26,
+                            getTitlesWidget: (double value, TitleMeta meta) {
+                              final int index = value.round();
+                              if (index < 0 || index >= items.length) {
+                                return const SizedBox.shrink();
+                              }
+                              if (!labelIndices.contains(index)) {
+                                return const SizedBox.shrink();
+                              }
+                              final int hour = items[index].hour;
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '$hour',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      barGroups: List<BarChartGroupData>.generate(
+                        items.length,
+                        (int index) {
+                          final MonthHourBucketItem item = items[index];
+                          final bool showTopLabel = item.totalSeconds > 0;
+                          return BarChartGroupData(
+                            x: index,
+                            barsSpace: 0,
+                            showingTooltipIndicators: showTopLabel
+                                ? const <int>[0]
+                                : const <int>[],
+                            barRods: <BarChartRodData>[
+                              BarChartRodData(
+                                toY: item.totalSeconds / 3600,
+                                width: items.length <= 10 ? 14 : 10,
+                                borderRadius: const BorderRadius.all(
+                                  Radius.circular(4),
+                                ),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.8),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ],
@@ -1781,20 +1820,125 @@ class _MonthHourDistributionCard extends StatelessWidget {
     );
   }
 
+  _AxisScale _buildBarAxisScale(double suggestedMax) {
+    final double safeMax = max(0.05, suggestedMax);
+    final double range = _niceNumber(safeMax, round: false);
+    final double interval = _niceNumber(range / 4, round: true);
+    final double maxValue = (safeMax / interval).ceilToDouble() * interval;
+    return _AxisScale(maxValue: maxValue, interval: interval);
+  }
+
+  double _niceNumber(double value, {required bool round}) {
+    if (!value.isFinite || value <= 0) {
+      return 1;
+    }
+    final double exponent = pow(10, (log(value) / ln10).floor()).toDouble();
+    final double fraction = value / exponent;
+    double niceFraction;
+    if (round) {
+      if (fraction < 1.5) {
+        niceFraction = 1;
+      } else if (fraction < 3) {
+        niceFraction = 2;
+      } else if (fraction < 7) {
+        niceFraction = 5;
+      } else {
+        niceFraction = 10;
+      }
+    } else {
+      if (fraction <= 1) {
+        niceFraction = 1;
+      } else if (fraction <= 2) {
+        niceFraction = 2;
+      } else if (fraction <= 5) {
+        niceFraction = 5;
+      } else {
+        niceFraction = 10;
+      }
+    }
+    return niceFraction * exponent;
+  }
+
+  Set<int> _buildHourAxisLabelIndices({
+    required List<MonthHourBucketItem> items,
+    required double availableWidth,
+  }) {
+    if (items.isEmpty) {
+      return const <int>{};
+    }
+
+    const double estimatedLabelSlotWidth = 34;
+    final double plotWidth = max(0, availableWidth - 48);
+    final int maxLabelCount = max(
+      2,
+      (plotWidth / estimatedLabelSlotWidth).floor(),
+    );
+    final Set<int> labelIndices = <int>{0, items.length - 1};
+    if (items.length <= maxLabelCount) {
+      labelIndices.addAll(
+        List<int>.generate(items.length, (int index) => index),
+      );
+      return labelIndices;
+    }
+
+    final int baseStep = max(1, (items.length / maxLabelCount).ceil());
+    for (int index = 0; index < items.length; index += baseStep) {
+      labelIndices.add(index);
+    }
+
+    final List<int> activeIndices = <int>[
+      for (int index = 0; index < items.length; index += 1)
+        if (items[index].totalSeconds > 0) index,
+    ];
+    if (activeIndices.length <= maxLabelCount) {
+      labelIndices.addAll(activeIndices);
+    } else if (activeIndices.isNotEmpty) {
+      labelIndices
+        ..add(activeIndices.first)
+        ..add(activeIndices.last);
+      final int activeStep = max(
+        1,
+        (activeIndices.length / maxLabelCount).ceil(),
+      );
+      for (int i = 0; i < activeIndices.length; i += activeStep) {
+        labelIndices.add(activeIndices[i]);
+      }
+    }
+    return labelIndices;
+  }
+
   String _formatYearMonth(DateTime date) {
     final String monthText = date.month.toString().padLeft(2, '0');
     return '${date.year}-$monthText';
   }
 
+  String _formatBarAxisHours(double value, {required double interval}) {
+    final int decimals = interval >= 1
+        ? 0
+        : interval >= 0.1
+        ? 1
+        : 2;
+    return '${_trimTrailingZeros(value.toStringAsFixed(decimals))}h';
+  }
+
   String _formatBarTopHours(int seconds) {
-    final double hours = seconds / 3600;
-    if (hours <= 0) {
+    if (seconds <= 0) {
       return '0h';
     }
-    final bool hasFraction = (hours * 10).round() % 10 != 0;
-    return hasFraction
-        ? '${hours.toStringAsFixed(1)}h'
-        : '${hours.toStringAsFixed(0)}h';
+    if (seconds < 3600) {
+      final int minutes = max(1, (seconds / 60).round());
+      return '${minutes}m';
+    }
+    final double hours = seconds / 3600;
+    final int decimals = hours < 1 ? 2 : (hours < 10 ? 1 : 0);
+    return '${_trimTrailingZeros(hours.toStringAsFixed(decimals))}h';
+  }
+
+  String _trimTrailingZeros(String value) {
+    if (!value.contains('.')) {
+      return value;
+    }
+    return value.replaceFirst(RegExp(r'\.?0+$'), '');
   }
 }
 
@@ -1949,13 +2093,6 @@ class _MonthDailyLineCardState extends State<_MonthDailyLineCard> {
     final _AxisScale axisScale = _buildNiceAxisScale(maxHours * 1.12);
     final double chartMaxY = axisScale.maxValue;
     final double axisInterval = axisScale.interval;
-    // Keep a roughly constant pixel-safe bottom gap so 0h dots won't be clipped
-    // in extreme scales (e.g. 24h / 0h alternating samples).
-    final double chartBottomPaddingHours = max(
-      0.12,
-      max(chartMaxY * 0.024, axisInterval * 0.08),
-    );
-    final double chartMinY = -chartBottomPaddingHours;
     final Color lineColor = Theme.of(context).colorScheme.tertiary;
     final List<FlSpot> rawSpots = points
         .map(
@@ -2024,6 +2161,11 @@ class _MonthDailyLineCardState extends State<_MonthDailyLineCard> {
                 const double chartHeight = 258;
                 const double yAxisWidth = 44;
                 const double axisChartGap = 4;
+                const double bottomTitlesReservedSize = 30;
+                final double chartMinY = -_computeLineChartBottomPaddingHours(
+                  chartMaxY: chartMaxY,
+                  plotHeight: chartHeight - bottomTitlesReservedSize,
+                );
                 final double viewportWidth = constraints.maxWidth;
                 final double scrollViewportWidth = max(
                   0,
@@ -2261,7 +2403,7 @@ class _MonthDailyLineCardState extends State<_MonthDailyLineCard> {
                                   bottomTitles: AxisTitles(
                                     sideTitles: SideTitles(
                                       showTitles: true,
-                                      reservedSize: 30,
+                                      reservedSize: bottomTitlesReservedSize,
                                       interval: 1,
                                       minIncluded: false,
                                       maxIncluded: false,
@@ -2620,10 +2762,26 @@ class _YearlyLineCard extends StatefulWidget {
 }
 
 class _YearlyLineCardState extends State<_YearlyLineCard> {
+  late final ScrollController _lineScrollController;
+  double _scrollOffset = 0;
   int? _guideMonth;
   double? _guideHours;
   bool _openingHistory = false;
   int _pendingOpenToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lineScrollController = ScrollController()..addListener(_handleScroll);
+  }
+
+  @override
+  void dispose() {
+    _lineScrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
+    super.dispose();
+  }
 
   @override
   void didUpdateWidget(covariant _YearlyLineCard oldWidget) {
@@ -2633,7 +2791,30 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
       return;
     }
     _cancelPendingHistoryOpen();
-    _clearGuide();
+    if (_lineScrollController.hasClients) {
+      _lineScrollController.jumpTo(0);
+    }
+    if (_scrollOffset == 0 && _guideMonth == null && _guideHours == null) {
+      return;
+    }
+    setState(() {
+      _scrollOffset = 0;
+      _guideMonth = null;
+      _guideHours = null;
+    });
+  }
+
+  void _handleScroll() {
+    final double next = _lineScrollController.offset;
+    if ((next - _scrollOffset).abs() < 0.5) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _scrollOffset = next;
+    });
   }
 
   void _setGuide(int month, double hours) {
@@ -2710,11 +2891,6 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
     final _AxisScale axisScale = _buildNiceAxisScale(maxHours * 1.12);
     final double chartMaxY = axisScale.maxValue;
     final double axisInterval = axisScale.interval;
-    final double chartBottomPaddingHours = max(
-      0.12,
-      max(chartMaxY * 0.024, axisInterval * 0.08),
-    );
-    final double chartMinY = -chartBottomPaddingHours;
     final Color lineColor = Theme.of(context).colorScheme.tertiary;
     final List<FlSpot> rawSpots = points
         .map(
@@ -2784,12 +2960,51 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
                 const double chartHeight = 258;
                 const double yAxisWidth = 44;
                 const double axisChartGap = 4;
+                const double bottomTitlesReservedSize = 30;
                 const double lineMinX = 0.8;
                 const double lineMaxX = 12.2;
-                final double chartWidth = max(
-                  0.0,
-                  constraints.maxWidth - yAxisWidth - axisChartGap,
+                final double chartMinY = -_computeLineChartBottomPaddingHours(
+                  chartMaxY: chartMaxY,
+                  plotHeight: chartHeight - bottomTitlesReservedSize,
                 );
+                final double viewportWidth = constraints.maxWidth;
+                final double scrollViewportWidth = max(
+                  0,
+                  viewportWidth - yAxisWidth - axisChartGap,
+                );
+                final double chartWidth = max(
+                  scrollViewportWidth,
+                  points.length * 54.0,
+                );
+                final double domainSpan = lineMaxX - lineMinX;
+                final double maxScrollOffset = max(
+                  0.0,
+                  chartWidth - scrollViewportWidth,
+                );
+                final double effectiveScrollOffset =
+                    _lineScrollController.hasClients
+                    ? _lineScrollController.offset.clamp(0.0, maxScrollOffset)
+                    : _scrollOffset.clamp(0.0, maxScrollOffset);
+                if (_lineScrollController.hasClients &&
+                    _lineScrollController.offset > maxScrollOffset + 0.5) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted || !_lineScrollController.hasClients) {
+                      return;
+                    }
+                    _lineScrollController.jumpTo(maxScrollOffset);
+                  });
+                }
+                final double visibleMinX =
+                    lineMinX +
+                    (effectiveScrollOffset / chartWidth) * domainSpan;
+                final double visibleMaxX =
+                    lineMinX +
+                    ((effectiveScrollOffset + scrollViewportWidth) /
+                            chartWidth) *
+                        domainSpan;
+                const double dotRadiusPx = 3.7;
+                final double dotRadiusX =
+                    dotRadiusPx / (chartWidth / domainSpan);
                 final TextStyle dateLabelStyle =
                     Theme.of(
                       context,
@@ -2807,6 +3022,16 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
                 final Color dotFillColor = Theme.of(
                   context,
                 ).colorScheme.surface;
+
+                bool isPointVisibleInDomain(double x) {
+                  return (x + dotRadiusX) >= visibleMinX &&
+                      (x - dotRadiusX) <= visibleMaxX;
+                }
+
+                bool isPointFullyVisibleInDomain(double x) {
+                  return (x - dotRadiusX) >= visibleMinX &&
+                      (x + dotRadiusX) <= visibleMaxX;
+                }
 
                 int? resolveMonthFromTouch(
                   FlTouchEvent event,
@@ -2828,6 +3053,9 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
                   }
                   final int month = domainX.round();
                   if (month < 1 || month > 12) {
+                    return null;
+                  }
+                  if (!isPointVisibleInDomain(month.toDouble())) {
                     return null;
                   }
                   return month;
@@ -2896,217 +3124,247 @@ class _YearlyLineCardState extends State<_YearlyLineCard> {
                       ),
                       const SizedBox(width: axisChartGap),
                       Expanded(
-                        child: LineChart(
-                          LineChartData(
-                            minX: lineMinX,
-                            maxX: lineMaxX,
-                            minY: chartMinY,
-                            maxY: chartMaxY,
-                            clipData: const FlClipData(
-                              top: false,
-                              bottom: true,
-                              left: false,
-                              right: false,
-                            ),
-                            gridData: const FlGridData(show: false),
-                            borderData: FlBorderData(show: false),
-                            extraLinesData: ExtraLinesData(
-                              extraLinesOnTop: true,
-                              verticalLines: showGuide
-                                  ? <VerticalLine>[
-                                      VerticalLine(
-                                        x: _guideMonth!.toDouble(),
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.42),
-                                        strokeWidth: 1.1,
-                                        dashArray: <int>[5, 4],
-                                      ),
-                                    ]
-                                  : const <VerticalLine>[],
-                              horizontalLines: showGuide
-                                  ? <HorizontalLine>[
-                                      HorizontalLine(
-                                        y: guideY,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.34),
-                                        strokeWidth: 1.0,
-                                        dashArray: <int>[5, 4],
-                                      ),
-                                    ]
-                                  : const <HorizontalLine>[],
-                            ),
-                            titlesData: FlTitlesData(
-                              topTitles: const AxisTitles(
-                                sideTitles: SideTitles(showTitles: false),
-                              ),
-                              rightTitles: const AxisTitles(
-                                sideTitles: SideTitles(showTitles: false),
-                              ),
-                              leftTitles: const AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: false,
-                                  reservedSize: 0,
+                        child: SingleChildScrollView(
+                          controller: _lineScrollController,
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          child: SizedBox(
+                            width: chartWidth,
+                            height: chartHeight,
+                            child: LineChart(
+                              LineChartData(
+                                minX: lineMinX,
+                                maxX: lineMaxX,
+                                minY: chartMinY,
+                                maxY: chartMaxY,
+                                clipData: const FlClipData(
+                                  top: false,
+                                  bottom: true,
+                                  left: false,
+                                  right: false,
                                 ),
-                              ),
-                              bottomTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  reservedSize: 30,
-                                  interval: 1,
-                                  minIncluded: false,
-                                  maxIncluded: false,
-                                  getTitlesWidget:
-                                      (double value, TitleMeta meta) {
-                                        final int month = value.round();
-                                        if ((value - month).abs() > 0.001) {
-                                          return const SizedBox.shrink();
-                                        }
-                                        if (month < 1 || month > 12) {
-                                          return const SizedBox.shrink();
-                                        }
-                                        return Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 4,
+                                gridData: const FlGridData(show: false),
+                                borderData: FlBorderData(show: false),
+                                extraLinesData: ExtraLinesData(
+                                  extraLinesOnTop: true,
+                                  verticalLines: showGuide
+                                      ? <VerticalLine>[
+                                          VerticalLine(
+                                            x: _guideMonth!.toDouble(),
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                                .withValues(alpha: 0.42),
+                                            strokeWidth: 1.1,
+                                            dashArray: <int>[5, 4],
                                           ),
-                                          child: Text(
-                                            '$month月',
-                                            style: dateLabelStyle,
+                                        ]
+                                      : const <VerticalLine>[],
+                                  horizontalLines: showGuide
+                                      ? <HorizontalLine>[
+                                          HorizontalLine(
+                                            y: guideY,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                                .withValues(alpha: 0.34),
+                                            strokeWidth: 1.0,
+                                            dashArray: <int>[5, 4],
                                           ),
-                                        );
-                                      },
+                                        ]
+                                      : const <HorizontalLine>[],
                                 ),
-                              ),
-                            ),
-                            lineTouchData: LineTouchData(
-                              enabled: true,
-                              handleBuiltInTouches: false,
-                              touchSpotThreshold: 18,
-                              touchCallback:
-                                  (
-                                    FlTouchEvent event,
-                                    LineTouchResponse? response,
-                                  ) {
-                                    if (event is FlLongPressStart ||
-                                        event is FlLongPressMoveUpdate) {
-                                      _cancelPendingHistoryOpen();
-                                      final int? guideMonth =
-                                          resolveMonthFromTouch(
-                                            event,
-                                            response,
-                                          );
-                                      if (guideMonth == null) {
-                                        _clearGuide();
-                                      } else {
-                                        _setGuide(
-                                          guideMonth,
-                                          rawHoursByMonth[guideMonth] ?? 0,
-                                        );
-                                      }
-                                      return;
-                                    }
-
-                                    if (event is FlLongPressEnd ||
-                                        event is FlTapCancelEvent ||
-                                        event is FlPanCancelEvent ||
-                                        event is FlPanEndEvent ||
-                                        event is FlPointerExitEvent) {
-                                      _cancelPendingHistoryOpen();
-                                      _clearGuide();
-                                      return;
-                                    }
-
-                                    if (event is! FlTapUpEvent) {
-                                      return;
-                                    }
-                                    final int? targetMonth =
-                                        resolveMonthFromTouch(event, response);
-                                    if (targetMonth == null) {
-                                      _cancelPendingHistoryOpen();
-                                      _clearGuide();
-                                      return;
-                                    }
-                                    _setGuide(
-                                      targetMonth,
-                                      rawHoursByMonth[targetMonth] ?? 0,
-                                    );
-                                    final DateTime today = DateTime.now();
-                                    final DateTime todayDate = DateTime(
-                                      today.year,
-                                      today.month,
-                                      today.day,
-                                    );
-                                    final DateTime targetDate = DateTime(
-                                      widget.year.year,
-                                      targetMonth,
-                                      1,
-                                    );
-                                    if (targetDate.isAfter(todayDate)) {
-                                      _cancelPendingHistoryOpen();
-                                      return;
-                                    }
-                                    _openHistoryForDateWithDelay(targetDate);
-                                  },
-                            ),
-                            lineBarsData: <LineChartBarData>[
-                              LineChartBarData(
-                                isCurved: false,
-                                color: lineColor,
-                                barWidth: 2.8,
-                                isStrokeJoinRound: true,
-                                dotData: const FlDotData(show: false),
-                                belowBarData: BarAreaData(
-                                  show: true,
-                                  applyCutOffY: true,
-                                  cutOffY: 0,
-                                  color: lineColor.withValues(alpha: 0.12),
+                                titlesData: FlTitlesData(
+                                  topTitles: const AxisTitles(
+                                    sideTitles: SideTitles(showTitles: false),
+                                  ),
+                                  rightTitles: const AxisTitles(
+                                    sideTitles: SideTitles(showTitles: false),
+                                  ),
+                                  leftTitles: const AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: false,
+                                      reservedSize: 0,
+                                    ),
+                                  ),
+                                  bottomTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      reservedSize: bottomTitlesReservedSize,
+                                      interval: 1,
+                                      minIncluded: false,
+                                      maxIncluded: false,
+                                      getTitlesWidget:
+                                          (double value, TitleMeta meta) {
+                                            final int month = value.round();
+                                            if ((value - month).abs() > 0.001) {
+                                              return const SizedBox.shrink();
+                                            }
+                                            if (month < 1 || month > 12) {
+                                              return const SizedBox.shrink();
+                                            }
+                                            if (!isPointVisibleInDomain(
+                                              month.toDouble(),
+                                            )) {
+                                              return const SizedBox.shrink();
+                                            }
+                                            return Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 4,
+                                              ),
+                                              child: Text(
+                                                '$month月',
+                                                style: dateLabelStyle,
+                                              ),
+                                            );
+                                          },
+                                    ),
+                                  ),
                                 ),
-                                spots: smoothSpots,
-                              ),
-                              LineChartBarData(
-                                isCurved: false,
-                                color: Colors.transparent,
-                                barWidth: 0,
-                                belowBarData: BarAreaData(show: false),
-                                aboveBarData: BarAreaData(show: false),
-                                dotData: FlDotData(
-                                  show: true,
-                                  getDotPainter:
+                                lineTouchData: LineTouchData(
+                                  enabled: true,
+                                  handleBuiltInTouches: false,
+                                  touchSpotThreshold: 18,
+                                  touchCallback:
                                       (
-                                        FlSpot spot,
-                                        double percent,
-                                        LineChartBarData bar,
-                                        int index,
+                                        FlTouchEvent event,
+                                        LineTouchResponse? response,
                                       ) {
-                                        final int month = spot.x.round();
-                                        if ((spot.x - month).abs() > 0.001 ||
-                                            month < 1 ||
-                                            month > 12) {
-                                          return FlDotCirclePainter(
-                                            radius: 0,
-                                            color: Colors.transparent,
-                                            strokeColor: Colors.transparent,
-                                            strokeWidth: 0,
-                                          );
+                                        if (event is FlLongPressStart ||
+                                            event is FlLongPressMoveUpdate) {
+                                          _cancelPendingHistoryOpen();
+                                          final int? guideMonth =
+                                              resolveMonthFromTouch(
+                                                event,
+                                                response,
+                                              );
+                                          if (guideMonth == null) {
+                                            _clearGuide();
+                                          } else {
+                                            _setGuide(
+                                              guideMonth,
+                                              rawHoursByMonth[guideMonth] ?? 0,
+                                            );
+                                          }
+                                          return;
                                         }
-                                        final String valueText =
-                                            '${(rawHoursByMonth[month] ?? spot.y).toStringAsFixed(1)}h';
-                                        return _ValueDotPainter(
-                                          radius: 2.8,
-                                          fillColor: dotFillColor,
-                                          strokeWidth: 1.8,
-                                          strokeColor: lineColor,
-                                          valueText: valueText,
-                                          textStyle: valueLabelStyle,
+
+                                        if (event is FlLongPressEnd ||
+                                            event is FlTapCancelEvent ||
+                                            event is FlPanCancelEvent ||
+                                            event is FlPanEndEvent ||
+                                            event is FlPointerExitEvent) {
+                                          _cancelPendingHistoryOpen();
+                                          _clearGuide();
+                                          return;
+                                        }
+
+                                        if (event is! FlTapUpEvent) {
+                                          return;
+                                        }
+                                        final int? targetMonth =
+                                            resolveMonthFromTouch(
+                                              event,
+                                              response,
+                                            );
+                                        if (targetMonth == null) {
+                                          _cancelPendingHistoryOpen();
+                                          _clearGuide();
+                                          return;
+                                        }
+                                        _setGuide(
+                                          targetMonth,
+                                          rawHoursByMonth[targetMonth] ?? 0,
+                                        );
+                                        final DateTime today = DateTime.now();
+                                        final DateTime todayDate = DateTime(
+                                          today.year,
+                                          today.month,
+                                          today.day,
+                                        );
+                                        final DateTime targetDate = DateTime(
+                                          widget.year.year,
+                                          targetMonth,
+                                          1,
+                                        );
+                                        if (targetDate.isAfter(todayDate)) {
+                                          _cancelPendingHistoryOpen();
+                                          return;
+                                        }
+                                        _openHistoryForDateWithDelay(
+                                          targetDate,
                                         );
                                       },
                                 ),
-                                spots: rawSpots,
+                                lineBarsData: <LineChartBarData>[
+                                  LineChartBarData(
+                                    isCurved: false,
+                                    color: lineColor,
+                                    barWidth: 2.8,
+                                    isStrokeJoinRound: true,
+                                    dotData: const FlDotData(show: false),
+                                    belowBarData: BarAreaData(
+                                      show: true,
+                                      applyCutOffY: true,
+                                      cutOffY: 0,
+                                      color: lineColor.withValues(alpha: 0.12),
+                                    ),
+                                    spots: smoothSpots,
+                                  ),
+                                  LineChartBarData(
+                                    isCurved: false,
+                                    color: Colors.transparent,
+                                    barWidth: 0,
+                                    belowBarData: BarAreaData(show: false),
+                                    aboveBarData: BarAreaData(show: false),
+                                    dotData: FlDotData(
+                                      show: true,
+                                      getDotPainter:
+                                          (
+                                            FlSpot spot,
+                                            double percent,
+                                            LineChartBarData bar,
+                                            int index,
+                                          ) {
+                                            final int month = spot.x.round();
+                                            if ((spot.x - month).abs() >
+                                                    0.001 ||
+                                                month < 1 ||
+                                                month > 12) {
+                                              return FlDotCirclePainter(
+                                                radius: 0,
+                                                color: Colors.transparent,
+                                                strokeColor: Colors.transparent,
+                                                strokeWidth: 0,
+                                              );
+                                            }
+                                            final String valueText =
+                                                '${(rawHoursByMonth[month] ?? spot.y).toStringAsFixed(1)}h';
+                                            if (!isPointFullyVisibleInDomain(
+                                              month.toDouble(),
+                                            )) {
+                                              return FlDotCirclePainter(
+                                                radius: 2.8,
+                                                color: dotFillColor,
+                                                strokeColor: lineColor,
+                                                strokeWidth: 1.8,
+                                              );
+                                            }
+                                            return _ValueDotPainter(
+                                              radius: 2.8,
+                                              fillColor: dotFillColor,
+                                              strokeWidth: 1.8,
+                                              strokeColor: lineColor,
+                                              valueText: valueText,
+                                              textStyle: valueLabelStyle,
+                                            );
+                                          },
+                                    ),
+                                    spots: rawSpots,
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -3271,6 +3529,26 @@ class _AxisScale {
   final double interval;
 }
 
+double _computeLineChartBottomPaddingHours({
+  required double chartMaxY,
+  required double plotHeight,
+}) {
+  const double desiredBottomPaddingPx = 10;
+  final double safeMaxY = max(0.0, chartMaxY);
+  final double safePlotHeight = max(1.0, plotHeight);
+  if (safeMaxY == 0 || safePlotHeight <= desiredBottomPaddingPx + 1) {
+    return 0;
+  }
+
+  // Convert a fixed visual gap near the x-axis into chart-domain units so
+  // tiny values (e.g. a single 1 min record) don't get lifted too far up.
+  final double paddingHours =
+      safeMaxY *
+      desiredBottomPaddingPx /
+      (safePlotHeight - desiredBottomPaddingPx);
+  return max(0.008, paddingHours);
+}
+
 class _ValueDotPainter extends FlDotPainter {
   const _ValueDotPainter({
     required this.radius,
@@ -3378,10 +3656,17 @@ class _ValueDotPainter extends FlDotPainter {
 }
 
 class _CustomRangeLabel extends StatelessWidget {
-  const _CustomRangeLabel({required this.animated, required this.selected});
+  const _CustomRangeLabel({
+    required this.animated,
+    required this.selected,
+    required this.compact,
+    required this.ultraCompact,
+  });
 
   final bool animated;
   final bool selected;
+  final bool compact;
+  final bool ultraCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -3394,19 +3679,21 @@ class _CustomRangeLabel extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Text('自定义'),
-          const SizedBox(width: 4),
-          AnimatedRotation(
-            turns: animated ? 0.05 : 0,
-            duration: const Duration(milliseconds: 220),
-            child: Icon(
-              Icons.auto_awesome,
-              size: 13,
-              color: selected
-                  ? scheme.primary
-                  : scheme.onSurface.withValues(alpha: 0.65),
+          Text(ultraCompact ? '自定' : '自定义'),
+          if (!compact) ...<Widget>[
+            const SizedBox(width: 4),
+            AnimatedRotation(
+              turns: animated ? 0.05 : 0,
+              duration: const Duration(milliseconds: 220),
+              child: Icon(
+                Icons.auto_awesome,
+                size: 13,
+                color: selected
+                    ? scheme.primary
+                    : scheme.onSurface.withValues(alpha: 0.65),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
