@@ -8,16 +8,19 @@ A personal "todo timing + time allocation analysis" app that helps you see exact
 
 ## Project Status
 
-- Version: V0.1
-- Status: Core features completed
+- Version: V0.2.0
+- Status: Current release baseline
 - App name: 计流 (TimeFlow)
 - Package name (Android/iOS): `com.francis.timeflow`
 
-## Features (V0.1)
+## Features (V0.2.0)
 
 - Todo group and todo management: create, edit, delete
 - Timer modes: forward timer, countdown timer (30 min / 1 h / custom)
+- Pause/resume: one active session can pause; current release pause budget is 3 minutes per session
+- End-of-session reflection: fill now / fill later, with pending reflection support in history details
 - Countdown reminders: configurable vibration and ringtone
+- Android alert handling: foreground progress notification, background reminder notification, and in-app settings entries for alert permissions/channels
 - Running timer screen: back navigation is blocked to avoid accidental exits
 - Recording rules:
   - Only one active timer is allowed at a time
@@ -25,11 +28,15 @@ A personal "todo timing + time allocation analysis" app that helps you see exact
 - Statistics:
   - Aggregate focus overview
   - Daily focus overview
+  - Monthly focus time-slot distribution
+  - Monthly focus trend
+  - Yearly focus trend
   - Focus duration distribution (day / week / month / custom)
 - Distribution chart interactions: tap to highlight, tap blank area to reset, drag to rotate
 - Focus history screen:
   - Swipe left/right to switch months
   - Year/month wheel picker for fast navigation
+  - Session detail dialog, reflection update, and record delete
   - Circle markers for dates with records
 - Data capability: local SQLite storage, backup export/import (JSON)
 - Sharing capability: stats poster preview, save to gallery, system share
@@ -117,7 +124,7 @@ Use cases: offline device migration and manual local transfer.
 
 ## Data Notes
 
-- Local database file: `timeflow_v0_1.db`
+- Local database file: `timeflow_v0_1.db` (kept for migration compatibility)
 - Core tables:
   - `project_groups`
   - `projects`
@@ -126,21 +133,21 @@ Use cases: offline device migration and manual local transfer.
 
 ## Product Documents
 
-- Chinese PRD v0.2: [`docs/zh-CN/PRD_计流_V0.2_20260312.md`](./docs/zh-CN/PRD_计流_V0.2_20260312.md)
-- English PRD v0.2: [`docs/en/PRD_TimeFlow_V0.2_20260312.md`](./docs/en/PRD_TimeFlow_V0.2_20260312.md)
+- Chinese PRD v0.2.0: [`docs/zh-CN/PRD_计流_V0.2_20260312.md`](./docs/zh-CN/PRD_计流_V0.2_20260312.md)
+- English PRD v0.2.0: [`docs/en/PRD_TimeFlow_V0.2_20260312.md`](./docs/en/PRD_TimeFlow_V0.2_20260312.md)
 - Chinese PRD v0.1: [`docs/zh-CN/PRD_计流_V0.1_20260311.md`](./docs/zh-CN/PRD_计流_V0.1_20260311.md)
 - English PRD v0.1: [`docs/en/PRD_TimeFlow_V0.1_20260311.md`](./docs/en/PRD_TimeFlow_V0.1_20260311.md)
 
-## Known Limits (V0.1)
+## Known Limits (V0.2.0)
 
-- "Pause" on the running timer screen is still a placeholder (planned for v0.2)
 - Cloud sync and real-time multi-device merge are not supported yet
 - Importing TomatoTodo data is not supported yet
+- On some Android OEM ROMs, heads-up and vibration still depend on user-enabled notification channel switches in system settings
 
 ## Roadmap
 
-- v0.2: pause/resume, more statistical charts, record editing
 - v0.3: cloud sync, multi-device login, goals and reminders
+- v0.4: richer notification controls and external data import
 
 ## Contributing
 

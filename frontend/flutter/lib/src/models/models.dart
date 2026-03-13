@@ -189,7 +189,7 @@ class ProjectGroupBundle {
 class RunningTimerInfo {
   const RunningTimerInfo({required this.timer, required this.project});
 
-  static const int pauseBudgetSeconds = 5;
+  static const int pauseBudgetSeconds = 180;
 
   final CurrentTimer timer;
   final ProjectItem project;

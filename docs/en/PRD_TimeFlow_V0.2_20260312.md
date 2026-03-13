@@ -1,14 +1,15 @@
-# TimeFlow PRD (V0.2)
+# TimeFlow PRD (V0.2.0)
 
-- Version: V0.2
-- Date: 2026-03-12
+- Version: V0.2.0
+- Date: 2026-03-13
 - Platform: Flutter (iOS / Android)
 - Previous version: V0.1 (completed)
-- One-line definition: On top of the V0.1 "record + analytics" loop, V0.2 completes pause control, record editing, and monthly/yearly trend analytics.
+- Release status: shipped baseline
+- One-line definition: On top of the V0.1 "record + analytics" loop, V0.2.0 completes pause control, record editing, and monthly/yearly trend analytics.
 
 ## 1. Version Goals
 
-V0.2 focuses on three things:
+V0.2.0 focuses on three things:
 
 1. Fix key UX bugs (Android reminder failure, black edge in todo-group expansion).
 2. Complete the "end-of-session reflection" and "editable focus record" loop.
@@ -16,7 +17,7 @@ V0.2 focuses on three things:
 
 ## 2. Scope
 
-### 2.1 In Scope (V0.2)
+### 2.1 In Scope (V0.2.0)
 
 - Bug fixes:
   - Android ringtone and vibration not working.
@@ -24,12 +25,12 @@ V0.2 focuses on three things:
 - New features:
   - Focus record detail dialog (including reflection) and delete action.
   - Reflection dialog after each finished timer session (fill now / fill later).
-  - Timer pause mechanism (3-minute total pause budget per session).
+  - Timer pause mechanism (3-minute total pause budget per session in the current release).
   - Monthly focus time-slot distribution chart (24 hourly buckets).
   - Monthly focus trend line chart (daily).
-  - Yearly focus trend line chart (daily).
+  - Yearly focus trend line chart (monthly).
 
-### 2.2 Out of Scope (Not in V0.2)
+### 2.2 Out of Scope (Not in V0.2.0)
 
 - Cloud sync and multi-device conflict merge.
 - Team collaboration and social features.
@@ -37,7 +38,7 @@ V0.2 focuses on three things:
 
 ## 3. Bug Fix Requirements
 
-### 3.1 Android ringtone and vibration not working
+### 3.1 Android ringtone and vibration reliability
 
 #### Problem
 
@@ -50,12 +51,16 @@ V0.2 focuses on three things:
   - If vibration is enabled, trigger one clear vibration feedback.
 - If the app is not in foreground:
   - Send a system notification reminding that the pause/countdown has ended.
+- On some OEM Android ROMs:
+  - Heads-up and vibration may still depend on channel-level system switches.
+  - The app should expose a direct entry to the related notification settings page.
 
 #### Acceptance criteria
 
-1. Android physical devices trigger ringtone and vibration reliably.
+1. Android physical devices trigger ringtone reliably.
 2. In background or screen-locked states, users still receive end notifications.
-3. If switches are off, corresponding reminders are not triggered.
+3. The app provides a direct notification-settings entry for user remediation on OEM ROMs.
+4. If switches are off, corresponding reminders are not triggered.
 
 ### 3.2 Black edge during todo-group expansion
 
@@ -128,11 +133,11 @@ V0.2 focuses on three things:
 2. Choosing fill later does not lose the session.
 3. Updated reflection is visible in record details.
 
-### 4.3 Timer pause mechanism (V0.2 key feature)
+### 4.3 Timer pause mechanism (V0.2.0 key feature)
 
 #### Requirement
 
-- Each timer session has a total pause budget of 3 minutes (180s).
+- Each timer session has a total pause budget of 3 minutes (180s) in the current release.
 - During pause, timer stops counting.
 - Pause dialog shows remaining pause countdown and warning text:
   - "To avoid long interruptions that break focus, each session supports up to 3 minutes of pause."
@@ -156,7 +161,7 @@ V0.2 focuses on three things:
 
 #### Acceptance criteria
 
-1. Total pause budget per session is strictly capped at 180s.
+1. Total pause budget per session is strictly capped at 180s in the current release.
 2. Early-end pause deducts budget correctly and keeps remaining budget usable.
 3. Pause is unavailable after budget is exhausted.
 4. Foreground end triggers vibration; background end triggers notification.
@@ -202,47 +207,45 @@ V0.2 focuses on three things:
 1. Daily hours match aggregated session data.
 2. Month switching is smooth and correct.
 
-### 4.6 Yearly focus statistics (daily line chart)
+### 4.6 Yearly focus statistics (monthly line chart)
 
 #### Requirement
 
 - Add a "Yearly Focus Statistics" module.
 - Statistical definition:
-  - X-axis: each day of year (1-365/366).
-  - Y-axis: focused hours for that day.
+  - X-axis: each month of the current year (1-12).
+  - Y-axis: focused hours for that month.
 - Chart type: line chart.
 
 #### Interaction
 
 - Support year switching (same style as Daily Focus switch).
-- Support point tooltip with exact date and duration.
+- Support point tooltip with exact month and duration.
 
 #### Acceptance criteria
 
-1. Daily values are correctly mapped across the whole year.
-2. Leap-year day count is handled correctly.
+1. Monthly values are correctly mapped across the whole year.
+2. Year switching remains smooth and stable.
 3. Performance remains acceptable with large data volume.
 
 ## 5. Data Design Changes (SQLite)
 
 ### 5.1 New fields in `focus_sessions`
 
-- `reflection_note TEXT NULL`: session reflection note.
-- `reflection_status TEXT NOT NULL DEFAULT 'empty'`: `empty` / `pending` / `filled`.
-- `reflection_updated_at TEXT NULL`: last reflection update time.
+- `note TEXT NULL`: session reflection note.
+- `note_pending INTEGER NOT NULL DEFAULT 0`: whether reflection is pending (`0/1`).
 
 ### 5.2 New fields in `current_timer`
 
-- `timer_status TEXT NOT NULL DEFAULT 'running'`: `running` / `paused`.
-- `pause_budget_seconds INTEGER NOT NULL DEFAULT 180`: total pause budget for this session.
-- `pause_used_seconds INTEGER NOT NULL DEFAULT 0`: used pause time in this session.
+- `status TEXT`: timer state (`running` / `paused`).
+- `paused_seconds_total INTEGER NOT NULL DEFAULT 0`: cumulative consumed pause time in this session.
 - `pause_started_at TEXT NULL`: pause start timestamp.
 
 ### 5.3 New analytics queries
 
 - Monthly time-slot distribution: aggregate by start-time hour (0-23).
 - Monthly trend line: aggregate by `record_date` per day.
-- Yearly trend line: aggregate by `record_date` per day across the year.
+- Yearly trend line: aggregate by `record_date` per month across the year.
 
 ## 6. Interaction and Edge Cases
 
@@ -250,6 +253,7 @@ V0.2 focuses on three things:
 - If app is killed while paused, remaining pause budget/state should recover based on real elapsed time.
 - After deleting a record, if selected day has no records, list correctly returns to empty state.
 - No page shake/jump when switching month/year in charts.
+- On some OEM Android ROMs, background heads-up/vibration may still depend on notification-channel system switches.
 
 ## 7. Non-Functional Requirements
 
@@ -257,16 +261,16 @@ V0.2 focuses on three things:
 - With 2,000+ records in a month, stats page should remain smooth for scroll and interaction.
 - Android reminder reliability target: >= 99% success in 100 trigger attempts.
 
-## 8. Acceptance Checklist (V0.2)
+## 8. Acceptance Checklist (V0.2.0)
 
 1. Android ringtone and vibration work in both foreground and background scenarios.
 2. No top/bottom black-edge artifacts in expanded todo groups.
 3. Record detail dialog supports detail view, reflection display, and confirmed delete.
 4. Reflection prompt appears after each completed timer session; supports fill now/fill later.
-5. Pause mechanism satisfies 3-minute budget, early end, notification behavior, and budget exhaustion lock.
+5. Pause mechanism satisfies the current 3-minute budget, early end, notification behavior, and budget exhaustion lock.
 6. Monthly time-slot bar chart is implemented and month switch works.
 7. Monthly daily line chart is implemented and month switch works.
-8. Yearly daily line chart is implemented and year switch works.
+8. Yearly monthly line chart is implemented and year switch works.
 9. Schema migration keeps old data readable without crashes.
 
 ## 9. Release Criteria
@@ -276,3 +280,9 @@ V0.2 focuses on three things:
   - Android reminder special test
   - Chart performance sampling test
 - Release version: `0.2.0+1`
+
+## 10. Release Sync Notes (2026-03-13)
+
+- This document reflects the shipped `v0.2.0` baseline rather than the earlier planning draft.
+- The current release keeps a 3-minute pause budget per session.
+- On some Android OEM ROMs, notification heads-up and vibration still require user-enabled channel switches in system settings.

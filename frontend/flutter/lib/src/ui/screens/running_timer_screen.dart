@@ -255,7 +255,7 @@ class _RunningTimerScreenState extends State<RunningTimerScreen> {
                 return const SizedBox.shrink();
               }
               final Duration remaining = state.pauseRemainingDuration;
-              final String message = '为避免暂停过长时间打断专注，单次计时最多暂停 5 秒';
+              final String message = '为避免暂停过长时间打断专注，单次计时最多暂停 3 分钟';
               return AlertDialog(
                 title: const Text('已暂停'),
                 content: Column(
